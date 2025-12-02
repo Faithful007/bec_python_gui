@@ -39,7 +39,6 @@ class JetFanTab(ttk.Frame):
         self.imax_var = tk.DoubleVar(value=0.0)     # maximum traffic flow [PCU/hr·lane]
         self.road_type_var = tk.IntVar(value=1)     # road type (1 or 2)
         self.lanes_var = tk.IntVar(value=1)         # number of lanes
-        self.target_year_var = tk.IntVar(value=2022)  # target year
         self.ar_var = tk.DoubleVar(value=1.0)       # least positive area to avoid divide-by-zero
         self.lr_var = tk.DoubleVar(value=1.0)       # least positive length
         self.dr_var = tk.DoubleVar(value=1.0)       # least positive diameter to avoid divide-by-zero
@@ -131,18 +130,6 @@ class JetFanTab(ttk.Frame):
         )
         row += 1
 
-        ttk.Label(self, text="Target year:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        year_cb = ttk.Combobox(
-            self,
-            textvariable=self.target_year_var,
-            values=list(range(2025, 2051)),
-            state="readonly",
-            width=10,
-        )
-        year_cb.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
 
         ttk.Label(self, text="Tunnel cross-sectional area Ar (m²):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
@@ -551,13 +538,368 @@ class JetFanCalculatorWindow(tk.Toplevel):
 
 
 # ----------------------------
+# Ventilation Volume window and helper components
+# ----------------------------
+class SegmentsTableTransposed(ttk.Frame):
+    """Placeholder for a segments table (direction-specific)."""
+    def __init__(self, master, direction, segments, on_change, t, **kwargs):
+        super().__init__(master, **kwargs)
+        ttk.Label(self, text=f"Segments table ({direction})").pack(anchor="w", padx=4, pady=4)
+        # Future: implement real editable segments table.
+
+
+class TunnelGeometry(ttk.LabelFrame):
+    """Geometry section with adjustable per-section inputs + Ar/Lp.
+
+    Adds a transposed grid (rows: items; columns: Section 1..N) above the Ar/Lp inputs:
+      - Tunnel gradient [%]
+      - Tunnel length [m]
+      - Number of lane(s) [N]
+
+    Parameters:
+      ar_var, lp_var: tk variables for Ar and Lp entries
+      count_var: tk.IntVar controlling number of sections (columns)
+      segments: list of dicts per section with keys: gradient, length, lanes
+      on_segments_change: optional callback(direction, segments)
+      on_ar_change, on_lp_change: callbacks for Ar/Lp changes
+    """
+    def __init__(self, master, ar_var, lp_var, count_var, segments, on_segments_change, on_ar_change, on_lp_change, t, **kwargs):
+        super().__init__(master, text="Tunnel Geometry", **kwargs)
+
+        self.count_var = count_var
+        self.segments = segments
+        self.on_segments_change = on_segments_change
+
+        # Container for the transposed grid
+        self.grid_frame = ttk.Frame(self)
+        self.grid_frame.grid(row=0, column=0, columnspan=4, sticky="nsew", padx=4, pady=(4, 8))
+
+        # Build initial grid
+        self._build_segments_grid()
+
+        # Rebuild grid when section count changes
+        self.count_var.trace_add("write", lambda *a: self._build_segments_grid())
+
+        # Separator
+        ttk.Separator(self, orient="horizontal").grid(row=1, column=0, columnspan=4, sticky="ew", pady=(2, 6))
+
+        # Ar/Lp inputs
+        ttk.Label(self, text="Tunnel Cross-Section Area [Ar]:").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(self, textvariable=ar_var, width=10).grid(row=2, column=1, sticky="w", padx=4, pady=4)
+
+        ttk.Label(self, text="Tunnel Perimeter [Lp]:").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(self, textvariable=lp_var, width=10).grid(row=3, column=1, sticky="w", padx=4, pady=4)
+
+        # Computed Dr = (4 * Ar) / Lp (read-only)
+        self.dr_var = tk.DoubleVar(value=0.0)
+        ttk.Label(self, text="Tunnel Representative Diameter [Dr] (m):").grid(row=4, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(self, textvariable=self.dr_var, width=14, state="readonly").grid(row=4, column=1, sticky="w", padx=4, pady=4)
+
+        if on_ar_change is not None:
+            ar_var.trace_add("write", lambda *args: on_ar_change(ar_var.get()))
+        if on_lp_change is not None:
+            lp_var.trace_add("write", lambda *args: on_lp_change(lp_var.get()))
+
+        # Always recompute Dr when Ar or Lp changes
+        ar_var.trace_add("write", lambda *args: self._recompute_dr(ar_var, lp_var))
+        lp_var.trace_add("write", lambda *args: self._recompute_dr(ar_var, lp_var))
+
+        # Initial Dr compute
+        self._recompute_dr(ar_var, lp_var)
+
+        # Keep label/entry columns anchored left; let a right filler stretch
+        self.columnconfigure(0, weight=0)
+        self.columnconfigure(1, weight=0)
+        self.columnconfigure(2, weight=1)
+
+    def _recompute_dr(self, ar_var, lp_var):
+        try:
+            ar = float(ar_var.get())
+        except Exception:
+            ar = 0.0
+        try:
+            lp = float(lp_var.get())
+        except Exception:
+            lp = 0.0
+        dr = (4.0 * ar / lp) if lp not in (0, 0.0) else 0.0
+        self.dr_var.set(round(dr, 4))
+
+    def _build_segments_grid(self):
+        # Clear previous grid
+        for w in self.grid_frame.winfo_children():
+            w.destroy()
+
+        n = self._safe_int(self.count_var.get(), 1)
+        n = max(1, min(50, n))
+
+        # Ensure segments storage size
+        while len(self.segments) < n:
+            self.segments.append({"gradient": 0.0, "length": 0.0, "lanes": 1})
+        while len(self.segments) > n:
+            self.segments.pop()
+
+        header_style = {"padx": 6, "pady": 2}
+        item_style = {"padx": 4, "pady": 2}
+
+        # Header row: Item | Section 1 | Section 2 | ...
+        ttk.Label(self.grid_frame, text="Item", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="w", **header_style)
+        for i in range(n):
+            ttk.Label(self.grid_frame, text=f"Sec. {i+1}", font=("Arial", 10, "bold")).grid(row=0, column=i+1, sticky="w", **header_style)
+
+        # Rows: Gradient, Length, Lanes
+        rows = [
+            ("Tunnel gradient [%]", "gradient", tk.DoubleVar),
+            ("Tunnel length [m]", "length", tk.DoubleVar),
+            ("Number of lanes [N]", "lanes", tk.IntVar),
+        ]
+
+        # Keep strong refs to vars to prevent GC
+        self._cell_vars = []
+
+        for r_index, (label, key, VarType) in enumerate(rows, start=1):
+            ttk.Label(self.grid_frame, text=label).grid(row=r_index, column=0, sticky="w", **item_style)
+            row_vars = []
+            for i in range(n):
+                default = self.segments[i].get(key, 0 if key == "lanes" else 0.0)
+                var = VarType(value=default)
+                ent = ttk.Entry(self.grid_frame, textvariable=var, width=14)
+                ent.grid(row=r_index, column=i+1, sticky="w", **item_style)
+
+                # attach trace to update storage
+                if key == "lanes":
+                    var.trace_add("write", lambda *a, idx=i, v=var, k=key: self._update_segment(idx, k, self._sanitize_lanes(v.get())))
+                else:
+                    var.trace_add("write", lambda *a, idx=i, v=var, k=key: self._update_segment(idx, k, self._safe_float(v.get(), 0.0)))
+
+                row_vars.append(var)
+            self._cell_vars.append(row_vars)
+
+        # Column weights: keep 'Item' fixed; let section columns stretch
+        self.grid_frame.columnconfigure(0, weight=0)
+        for c in range(1, n+1):
+            self.grid_frame.columnconfigure(c, weight=1)
+
+    def _update_segment(self, idx, key, value):
+        if 0 <= idx < len(self.segments):
+            self.segments[idx][key] = value
+            if key == "lanes" and (not isinstance(value, int) or value < 1):
+                self.segments[idx][key] = 1
+        if callable(self.on_segments_change):
+            try:
+                self.on_segments_change("segments", self.segments)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _safe_int(v, default=0):
+        try:
+            return int(v)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _safe_float(v, default=0.0):
+        try:
+            return float(v)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _sanitize_lanes(v):
+        try:
+            val = int(v)
+        except Exception:
+            val = 1
+        return max(1, val)
+
+
+class SummaryRow(ttk.Frame):
+    """Displays provided stats and traffic dictionaries in two rows."""
+    def __init__(self, master, stats, traffic, t, **kwargs):
+        super().__init__(master, **kwargs)
+        col = 0
+        ttk.Label(self, text="Stats:", font=("Arial", 10, "bold")).grid(row=0, column=col, sticky="w", padx=4, pady=2)
+        col += 1
+        for key, value in stats.items():
+            ttk.Label(self, text=f"{key}: {value}").grid(row=0, column=col, sticky="w", padx=4, pady=2)
+            col += 1
+
+        ttk.Label(self, text="Traffic:", font=("Arial", 10, "bold")).grid(row=1, column=0, sticky="w", padx=4, pady=2)
+        col = 1
+        for key, value in traffic.items():
+            ttk.Label(self, text=f"{key}: {value}").grid(row=1, column=col, sticky="w", padx=4, pady=2)
+            col += 1
+
+
+class VentilationVolumeWindow(tk.Toplevel):
+    """Window implementing the 'Calculate Ventilation Volume' placeholder layout."""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Calculate Ventilation Volume")
+        self.geometry("900x600")
+
+        # Translation-like dict
+        t = {
+            "dir1Title": "Masan → Jinju",
+            "dir2Title": "Jinju → Masan",
+            "numberOfSectionsLabel": "Number of sections",
+            "averageElevationLabel": "Average elevation",
+        }
+
+        # State variables
+        self.sectionCountMasanToJinju = tk.IntVar(value=10)
+        self.sectionCountJinjuToMasan = tk.IntVar(value=10)
+        self.avgElevationMasanToJinju = tk.DoubleVar(value=0.0)
+        self.avgElevationJinjuToMasan = tk.DoubleVar(value=0.0)
+        # Ventilation design speeds (80/100/120)
+        self.designSpeedMasanToJinju = tk.IntVar(value=80)
+        self.designSpeedJinjuToMasan = tk.IntVar(value=80)
+        self.tunnelArMasanToJinju = tk.DoubleVar(value=0.0)
+        self.tunnelLpMasanToJinju = tk.DoubleVar(value=0.0)
+        self.tunnelArJinjuToMasan = tk.DoubleVar(value=0.0)
+        self.tunnelLpJinjuToMasan = tk.DoubleVar(value=0.0)
+
+        # Example data containers
+        self.statsMasanToJinju = {"length_km": 0, "max_gradient": 0}
+        self.statsJinjuToMasan = {"length_km": 0, "max_gradient": 0}
+        self.trafficMasanToJinju = {"AADT": 0, "trucks_pct": 0}
+        self.trafficJinjuToMasan = {"AADT": 0, "trucks_pct": 0}
+        self.segmentsMasanToJinju = []
+        self.segmentsJinjuToMasan = []
+
+        def handleSectionCountChange(direction, value):
+            try:
+                v = int(value)
+            except ValueError:
+                return
+            v = max(1, min(50, v))
+            if direction == "MasanToJinju":
+                self.sectionCountMasanToJinju.set(v)
+            elif direction == "JinjuToMasan":
+                self.sectionCountJinjuToMasan.set(v)
+
+        # Geometry callbacks (placeholders)
+        def onArChangeMasan(val):
+            pass
+        def onLpChangeMasan(val):
+            pass
+        def onArChangeJinju(val):
+            pass
+        def onLpChangeJinju(val):
+            pass
+
+        main_frame = ttk.Frame(self)
+        main_frame.pack(fill="both", expand=True)
+
+        card_padding = {"padx": 10, "pady": 10}
+
+        # Direction 1 card
+        card1 = ttk.Frame(main_frame, relief="raised", borderwidth=1)
+        card1.pack(fill="x", **card_padding)
+        header1 = ttk.Frame(card1)
+        header1.pack(fill="x", pady=(0, 8))
+        ttk.Label(header1, text=t["dir1Title"], font=("Arial", 14, "bold")).pack(side="left")
+        controls1 = ttk.Frame(header1)
+        controls1.pack(side="right")
+        sections_group1 = ttk.Frame(controls1)
+        sections_group1.pack(side="left", padx=8)
+        ttk.Label(sections_group1, text=t["numberOfSectionsLabel"] + ":").pack(side="left")
+        tk.Spinbox(
+            sections_group1,
+            from_=1,
+            to=50,
+            textvariable=self.sectionCountMasanToJinju,
+            width=5,
+            command=lambda: handleSectionCountChange("MasanToJinju", self.sectionCountMasanToJinju.get()),
+        ).pack(side="left")
+        elevation_group1 = ttk.Frame(controls1)
+        elevation_group1.pack(side="left", padx=8)
+        ttk.Label(elevation_group1, text=t["averageElevationLabel"] + ":").pack(side="left")
+        ttk.Entry(elevation_group1, textvariable=self.avgElevationMasanToJinju, width=10).pack(side="left")
+
+        # Ventilation Design Speed (80/100/120)
+        speed_group1 = ttk.Frame(controls1)
+        speed_group1.pack(side="left", padx=8)
+        ttk.Label(speed_group1, text="Ventilation Design Speed:").pack(side="left")
+        ttk.Combobox(
+            speed_group1,
+            textvariable=self.designSpeedMasanToJinju,
+            values=[80, 100, 120],
+            state="readonly",
+            width=6,
+        ).pack(side="left")
+        SegmentsTableTransposed(card1, "MasanToJinju", self.segmentsMasanToJinju, None, t).pack(fill="x", pady=4)
+        TunnelGeometry(
+            card1,
+            self.tunnelArMasanToJinju,
+            self.tunnelLpMasanToJinju,
+            self.sectionCountMasanToJinju,
+            self.segmentsMasanToJinju,
+            None,
+            onArChangeMasan,
+            onLpChangeMasan,
+            t,
+        ).pack(fill="x", pady=4)
+        SummaryRow(card1, self.statsMasanToJinju, self.trafficMasanToJinju, t).pack(fill="x", pady=4)
+
+        # Direction 2 card
+        card2 = ttk.Frame(main_frame, relief="raised", borderwidth=1)
+        card2.pack(fill="x", **card_padding)
+        header2 = ttk.Frame(card2)
+        header2.pack(fill="x", pady=(0, 8))
+        ttk.Label(header2, text=t["dir2Title"], font=("Arial", 14, "bold")).pack(side="left")
+        controls2 = ttk.Frame(header2)
+        controls2.pack(side="right")
+        sections_group2 = ttk.Frame(controls2)
+        sections_group2.pack(side="left", padx=8)
+        ttk.Label(sections_group2, text=t["numberOfSectionsLabel"] + ":").pack(side="left")
+        tk.Spinbox(
+            sections_group2,
+            from_=1,
+            to=50,
+            textvariable=self.sectionCountJinjuToMasan,
+            width=5,
+            command=lambda: handleSectionCountChange("JinjuToMasan", self.sectionCountJinjuToMasan.get()),
+        ).pack(side="left")
+        elevation_group2 = ttk.Frame(controls2)
+        elevation_group2.pack(side="left", padx=8)
+        ttk.Label(elevation_group2, text=t["averageElevationLabel"] + ":").pack(side="left")
+        ttk.Entry(elevation_group2, textvariable=self.avgElevationJinjuToMasan, width=10).pack(side="left")
+
+        # Ventilation Design Speed (80/100/120)
+        speed_group2 = ttk.Frame(controls2)
+        speed_group2.pack(side="left", padx=8)
+        ttk.Label(speed_group2, text="Ventilation Design Speed:").pack(side="left")
+        ttk.Combobox(
+            speed_group2,
+            textvariable=self.designSpeedJinjuToMasan,
+            values=[80, 100, 120],
+            state="readonly",
+            width=6,
+        ).pack(side="left")
+        SegmentsTableTransposed(card2, "JinjuToMasan", self.segmentsJinjuToMasan, None, t).pack(fill="x", pady=4)
+        TunnelGeometry(
+            card2,
+            self.tunnelArJinjuToMasan,
+            self.tunnelLpJinjuToMasan,
+            self.sectionCountJinjuToMasan,
+            self.segmentsJinjuToMasan,
+            None,
+            onArChangeJinju,
+            onLpChangeJinju,
+            t,
+        ).pack(fill="x", pady=4)
+        SummaryRow(card2, self.statsJinjuToMasan, self.trafficJinjuToMasan, t).pack(fill="x", pady=4)
+
+
+# ----------------------------
 # 4) Main menu window
 # ----------------------------
 class MainApp(tk.Tk):
     """Main menu to launch different ventilation calculation programs."""
     def __init__(self):
         super().__init__()
-        self.title("Tunnel Ventilation System - Main Menu")
+        self.title("BEC Computational System - Main Menu")
         self.geometry("600x400")
         
         self._build_menu()
@@ -594,24 +936,23 @@ class MainApp(tk.Tk):
         button_width = 40
         button_padding = 10
 
-        # 1. Jet Fan Calculator
-        btn_jet_fan = ttk.Button(
+        # 1. Calculate Ventilation Volume (now placeholder)
+        btn_volume = ttk.Button(
             menu_frame,
-            text="1. Jet Fan Calculator",
+            text="1. Calculate Ventilation Volume",
+            command=self._open_ventilation_volume,
+            width=button_width
+        )
+        btn_volume.pack(pady=button_padding)
+
+        # 2. Calculate Ventilation Capacity (Jet Fan)
+        btn_jet_capacity = ttk.Button(
+            menu_frame,
+            text="2. Calculate Ventilation Capacity (Jet Fan)",
             command=self._open_jet_fan_calculator,
             width=button_width
         )
-        btn_jet_fan.pack(pady=button_padding)
-
-        # 2. Ventilation Shaft Calculator (placeholder)
-        btn_shaft = ttk.Button(
-            menu_frame,
-            text="2. Ventilation Shaft Calculator (Coming Soon)",
-            command=self._coming_soon,
-            width=button_width,
-            state="disabled"
-        )
-        btn_shaft.pack(pady=button_padding)
+        btn_jet_capacity.pack(pady=button_padding)
 
         # 3. Emergency Ventilation (placeholder)
         btn_emergency = ttk.Button(
@@ -658,6 +999,10 @@ class MainApp(tk.Tk):
     def _open_jet_fan_calculator(self):
         """Open the Jet Fan Calculator window."""
         JetFanCalculatorWindow(self)
+
+    def _open_ventilation_volume(self):
+        """Open the Ventilation Volume window."""
+        VentilationVolumeWindow(self)
 
     def _coming_soon(self):
         """Placeholder for future modules."""
