@@ -1,7 +1,7 @@
 # main_gui.py
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 from vent_functions import (
     TunnelVentInputs,
@@ -21,11 +21,14 @@ class JetFanTab(ttk.Frame):
     - high_efficiency: dropdown (High efficiency / Standard)
     """
 
-    def __init__(self, parent, result_tab=None):
+    def __init__(self, parent, result_tab=None, volume_tab=None):
         super().__init__(parent)
         self.result_tab = result_tab
+        self.volume_tab = volume_tab
         self._build_variables()
         self._build_layout()
+        self._wire_volume_sources()
+        self._recompute_dynamic()
 
     # ----------------------------
     # 1) Variables for widgets
@@ -36,11 +39,9 @@ class JetFanTab(ttk.Frame):
 
         # Variables the user can change
         self.qtreq_var = tk.DoubleVar(value=0.0)    # least value
-        self.imax_var = tk.DoubleVar(value=0.0)     # maximum traffic flow [PCU/hr·lane]
-        self.road_type_var = tk.IntVar(value=1)     # road type (1 or 2)
         self.lanes_var = tk.IntVar(value=1)         # number of lanes
         self.ar_var = tk.DoubleVar(value=1.0)       # least positive area to avoid divide-by-zero
-        self.lr_var = tk.DoubleVar(value=1.0)       # least positive length
+        self.lr_var = tk.DoubleVar(value=1.0)       # total tunnel length (will be sourced)
         self.dr_var = tk.DoubleVar(value=1.0)       # least positive diameter to avoid divide-by-zero
 
         # Constants (shown but read-only)
@@ -69,20 +70,31 @@ class JetFanTab(ttk.Frame):
         # a small label to show result on this tab
         self.result_var = tk.StringVar(value="")
 
+        # dynamic labels for exact/approx results
+        self.exact_z_var = tk.StringVar(value="-")
+        self.approx_z_var = tk.StringVar(value="-")
+
+        # Hidden variable for Imax (capacity per lane) sourced from Volume tab
+        self.imax_var = tk.DoubleVar(value=0.0)
+
     # ----------------------------
     # 2) Layout / widgets
     # ----------------------------
     def _build_layout(self):
-        pad = 4
+        # Create a container frame with padding
+        container = ttk.Frame(self, padding="20 20 20 20")
+        container.pack(fill="both", expand=True)
+        
+        pad = 6
 
         # Left column: main variables
         row = 0
 
-        ttk.Label(self, text="Driving speed V_kmh (km/h):").grid(
+        ttk.Label(container, text="Driving speed V_kmh (km/h):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
         v_kmh_cb = ttk.Combobox(
-            self,
+            container,
             textvariable=self.v_kmh_var,
             values=[10, 20, 30, 40, 50, 60, 70, 80],
             state="readonly",
@@ -92,74 +104,52 @@ class JetFanTab(ttk.Frame):
         v_kmh_cb.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
         row += 1
 
-        ttk.Label(self, text="Required ventilation Qtreq (m³/s):").grid(
+        ttk.Label(container, text="Required ventilation Qtreq (m³/s):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        ttk.Entry(self, textvariable=self.qtreq_var, width=12).grid(
+        ttk.Entry(container, textvariable=self.qtreq_var, width=12).grid(
             row=row, column=1, sticky="w", padx=pad, pady=pad
         )
         row += 1
 
-        ttk.Label(self, text="Max traffic flow Imax (PCU/hr·lane):").grid(
+        ttk.Label(container, text="Number of lanes:").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        ttk.Entry(self, textvariable=self.imax_var, width=12).grid(
-            row=row, column=1, sticky="w", padx=pad, pady=pad
-        )
-        row += 1
-
-        ttk.Label(self, text="Road type:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        road_type_cb = ttk.Combobox(
-            self,
-            textvariable=self.road_type_var,
-            values=["1 - National Road/Expressway", "2 - Downtown"],
-            state="readonly",
-            width=20,
-        )
-        road_type_cb.current(0)
-        road_type_cb.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        ttk.Label(self, text="Number of lanes:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        ttk.Entry(self, textvariable=self.lanes_var, width=12).grid(
+        ttk.Entry(container, textvariable=self.lanes_var, width=12).grid(
             row=row, column=1, sticky="w", padx=pad, pady=pad
         )
         row += 1
 
 
-        ttk.Label(self, text="Tunnel cross-sectional area Ar (m²):").grid(
+        ttk.Label(container, text="Tunnel cross-sectional area Ar (m²):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        ttk.Entry(self, textvariable=self.ar_var, width=12).grid(
+        ttk.Entry(container, textvariable=self.ar_var, width=12, state="readonly").grid(
             row=row, column=1, sticky="w", padx=pad, pady=pad
         )
         row += 1
 
-        ttk.Label(self, text="Tunnel length Lr (m):").grid(
+        ttk.Label(container, text="Tunnel length Lr (m):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        ttk.Entry(self, textvariable=self.lr_var, width=12).grid(
+        ttk.Entry(container, textvariable=self.lr_var, width=12, state="readonly").grid(
             row=row, column=1, sticky="w", padx=pad, pady=pad
         )
         row += 1
 
-        ttk.Label(self, text="Representative diameter Dr (m):").grid(
+        ttk.Label(container, text="Representative diameter Dr (m):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        ttk.Entry(self, textvariable=self.dr_var, width=12).grid(
+        ttk.Entry(container, textvariable=self.dr_var, width=12, state="readonly").grid(
             row=row, column=1, sticky="w", padx=pad, pady=pad
         )
         row += 1
 
-        ttk.Label(self, text="Jet fan diameter Φ (mm):").grid(
+        ttk.Label(container, text="Jet fan diameter Φ (mm):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
         jet_cb = ttk.Combobox(
-            self,
+            container,
             textvariable=self.jet_diameter_var,
             values=self.jet_choices,
             state="readonly",
@@ -168,11 +158,11 @@ class JetFanTab(ttk.Frame):
         jet_cb.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
         row += 1
 
-        ttk.Label(self, text="Jet fan type:").grid(
+        ttk.Label(container, text="Jet fan type:").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
         eff_cb = ttk.Combobox(
-            self,
+            container,
             textvariable=self.high_eff_var,
             values=self.high_eff_choices,
             state="readonly",
@@ -182,67 +172,79 @@ class JetFanTab(ttk.Frame):
         row += 1
 
         # Separator
-        ttk.Separator(self, orient="horizontal").grid(
-            row=row, column=0, columnspan=3, sticky="ew", pady=(pad * 2, pad)
+        ttk.Separator(container, orient="horizontal").grid(
+            row=row, column=0, columnspan=3, sticky="ew", pady=(pad * 3, pad * 2)
         )
         row += 1
 
         # Right column: constants, displayed read-only
-        ttk.Label(self, text="Natural wind speed Un (m/s) [computed]:").grid(
+        ttk.Label(container, text="Natural wind speed Un (m/s) [computed]:").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        un_entry = ttk.Entry(self, textvariable=self.un_var, width=12, state="readonly")
+        un_entry = ttk.Entry(container, textvariable=self.un_var, width=12, state="readonly")
         un_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
         row += 1
 
-        ttk.Label(self, text="Air density ρ (kg/m³):").grid(
+        ttk.Label(container, text="Air density ρ (kg/m³):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        rho_entry = ttk.Entry(self, textvariable=self.rho_var, width=12, state="readonly")
+        rho_entry = ttk.Entry(container, textvariable=self.rho_var, width=12, state="readonly")
         rho_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
         row += 1
 
-        ttk.Label(self, text="Entrance loss ξ:").grid(
+        ttk.Label(container, text="Entrance loss ξ:").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        xi_entry = ttk.Entry(self, textvariable=self.xi_var, width=12, state="readonly")
+        xi_entry = ttk.Entry(container, textvariable=self.xi_var, width=12, state="readonly")
         xi_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
         row += 1
 
-        ttk.Label(self, text="Friction loss λ:").grid(
+        ttk.Label(container, text="Friction loss λ:").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        lamb_entry = ttk.Entry(self, textvariable=self.lamb_var, width=12, state="readonly")
+        lamb_entry = ttk.Entry(container, textvariable=self.lamb_var, width=12, state="readonly")
         lamb_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
         row += 1
 
-        ttk.Label(self, text="Equivalent resistance area Ae (m²):").grid(
+        ttk.Label(container, text="Equivalent resistance area Ae (m²):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        ae_entry = ttk.Entry(self, textvariable=self.ae_var, width=12, state="readonly")
+        ae_entry = ttk.Entry(container, textvariable=self.ae_var, width=12, state="readonly")
         ae_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
         row += 1
 
-        ttk.Label(self, text="Jet fan efficiency η:").grid(
+        ttk.Label(container, text="Jet fan efficiency η:").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        eta_entry = ttk.Entry(self, textvariable=self.eta_var, width=12, state="readonly")
+        eta_entry = ttk.Entry(container, textvariable=self.eta_var, width=12, state="readonly")
         eta_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
         row += 1
 
-        # Compute button + small result
-        ttk.Button(self, text="Compute jet fan number", command=self._on_compute).grid(
-            row=row, column=0, columnspan=2, pady=(pad * 2, pad)
+        # Dynamic results labels
+        ttk.Label(container, text="Exact number of Jet Fan Require =").grid(
+            row=row, column=0, sticky="e", padx=pad, pady=(pad, 0)
+        )
+        ttk.Label(container, textvariable=self.exact_z_var, foreground="#004080").grid(
+            row=row, column=1, sticky="w", padx=pad, pady=(pad, 0)
         )
         row += 1
-
-        ttk.Label(self, textvariable=self.result_var, foreground="blue").grid(
-            row=row, column=0, columnspan=2, pady=(pad, pad)
+        ttk.Label(container, text="Approximated Number of Jet Fan Require =").grid(
+            row=row, column=0, sticky="e", padx=pad, pady=(0, pad)
+        )
+        ttk.Label(container, textvariable=self.approx_z_var, foreground="#004080").grid(
+            row=row, column=1, sticky="w", padx=pad, pady=(0, pad)
         )
 
         # Make columns expand a bit
-        self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=1)
+        container.columnconfigure(0, weight=0)
+        container.columnconfigure(1, weight=1)
+
+        # Traces for dynamic recompute
+        for var in [self.v_kmh_var, self.qtreq_var, self.lanes_var, self.rho_var, self.xi_var, self.lamb_var, self.ae_var, self.eta_var, self.jet_diameter_var, self.high_eff_var]:
+            try:
+                var.trace_add("write", lambda *a: self._recompute_dynamic())
+            except Exception:
+                pass
 
     # ----------------------------
     # 3) Data extraction + compute
@@ -253,20 +255,11 @@ class JetFanTab(ttk.Frame):
         high_eff_str = self.high_eff_var.get()
         high_eff_bool = high_eff_str.startswith("High")
 
-        # Extract road_type from dropdown (parse first character)
-        road_type_str = str(self.road_type_var.get())
-        if road_type_str.startswith("1"):
-            road_type = 1
-        elif road_type_str.startswith("2"):
-            road_type = 2
-        else:
-            road_type = int(self.road_type_var.get())
-
         return TunnelVentInputs(
             V_kmh=float(self.v_kmh_var.get()),
             Qtreq=float(self.qtreq_var.get()),
             Imax=float(self.imax_var.get()),
-            road_type=road_type,
+            road_type=1,
             lanes=int(self.lanes_var.get()),
             Ar=float(self.ar_var.get()),
             Lr=float(self.lr_var.get()),
@@ -286,6 +279,7 @@ class JetFanTab(ttk.Frame):
         v_kmh = float(self.v_kmh_var.get())
         un_value = compute_Un(v_kmh)
         self.un_var.set(un_value)
+        self._recompute_dynamic()
 
     def _on_compute(self):
         """Callback for 'Compute jet fan number' button."""
@@ -305,6 +299,64 @@ class JetFanTab(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
+    def _recompute_dynamic(self):
+        try:
+            inp = self._build_inputs_object()
+            results = compute_all(inp)
+            self.exact_z_var.set(f"{results.Z_raw:.3f}")
+            self.approx_z_var.set(f"{results.Z_applied}")
+            self.result_var.set("")
+        except Exception:
+            # Keep labels as-is on error
+            pass
+
+    def _wire_volume_sources(self):
+        if not self.volume_tab:
+            return
+        # Sync Ar, Lr, Dr from VentilationVolumeTab (Masan→Jinju by default)
+        def sync(*_):
+            try:
+                params = self.volume_tab.get_params_for_jet(direction="MasanToJinju")
+                volsum = self.volume_tab.get_volume_summary(direction="MasanToJinju")
+                # Geometry
+                self.ar_var.set(params.get("Ar", self.ar_var.get()))
+                self.lr_var.set(params.get("Lr_m", self.lr_var.get()))
+                self.dr_var.set(params.get("Dr", self.dr_var.get()))
+                # Capacity and lanes (Imax is capacity per lane from volume tab)
+                self.imax_var.set(volsum.get("cap_per_lane", self.imax_var.get()))
+                # Default lanes from volume summary if available
+                lanes_from_volume = volsum.get("lanes")
+                if isinstance(lanes_from_volume, int) and lanes_from_volume >= 1:
+                    self.lanes_var.set(lanes_from_volume)
+                self._recompute_dynamic()
+            except Exception:
+                pass
+        # Trace on Ar/Lp/total length vars
+        try:
+            self.volume_tab.tunnelArMasanToJinju.trace_add("write", sync)
+            self.volume_tab.tunnelLpMasanToJinju.trace_add("write", sync)
+            self.volume_tab.totalLengthMasanToJinju_m.trace_add("write", sync)
+            # Also trace design speed to refresh capacity per lane (Imax)
+            self.volume_tab.designSpeedMasanToJinju.trace_add("write", sync)
+        except Exception:
+            pass
+        # Initial sync
+        sync()
+
+    def compute_and_publish(self):
+        """Compute jet fan numbers and publish to the Results tab."""
+        try:
+            inp = self._build_inputs_object()
+            results = compute_all(inp)
+            self.exact_z_var.set(f"{results.Z_raw:.3f}")
+            self.approx_z_var.set(f"{results.Z_applied}")
+            if self.result_tab:
+                self.result_tab.display_results(inp, results)
+            return inp, results
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            return None, None
+
 
 class ResultsTab(ttk.Frame):
     """Tab to display detailed calculation results with formulas."""
@@ -315,8 +367,8 @@ class ResultsTab(ttk.Frame):
 
     def _build_layout(self):
         # Create a scrollable text widget
-        scroll_frame = ttk.Frame(self)
-        scroll_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        scroll_frame = ttk.Frame(self, padding="10 10 10 10")
+        scroll_frame.pack(fill="both", expand=True)
 
         # Scrollbar
         scrollbar = ttk.Scrollbar(scroll_frame)
@@ -356,8 +408,7 @@ class ResultsTab(ttk.Frame):
         self._add_text(f"Driving speed V_kmh:              {inp.V_kmh} km/h\n")
         self._add_text(f"Required ventilation Qtreq:       {inp.Qtreq} m³/s\n")
         self._add_text(f"Natural wind speed Un (computed): {results.Un} m/s\n")
-        self._add_text(f"Max traffic flow Imax:            {inp.Imax} PCU/hr·lane\n")
-        self._add_text(f"Road type:                        {inp.road_type} ({'National Road/Expressway' if inp.road_type == 1 else 'Downtown'})\n")
+        # Imax and road type inputs removed from UI; omitted from display
         self._add_text(f"Number of lanes:                  {inp.lanes}\n")
         self._add_text(f"Tunnel cross-sectional area Ar:   {inp.Ar} m²\n")
         self._add_text(f"Tunnel length Lr:                 {inp.Lr} m\n")
@@ -417,8 +468,9 @@ class ResultsTab(ttk.Frame):
         # 6. n
         self._add_text("6. Number of vehicles in tunnel (n)\n", "subheading")
         self._add_text("   Formula: ", "formula")
-        self._add_text("n = ROUND(traffic_volume × Lr / (3600 × Vt) + 0.4)\n", "formula")
-        self._add_text(f"   Calculation: n = ROUND({inp.traffic_volume} × {inp.Lr} / (3600 × {results.Vt}) + 0.4)\n")
+        self._add_text("n = ROUND(Q × lanes × Lr / (3600 × Vt) + 0.4)\n", "formula")
+        self._add_text(f"   where Q is traffic flow computed from Imax = {inp.Imax} PCU/hr·lane\n")
+        self._add_text(f"   Calculation: n = ROUND(Q × {inp.lanes} × {inp.Lr} / (3600 × {results.Vt}) + 0.4)\n")
         self._add_text(f"   Result: ", "result")
         self._add_text(f"n = {results.n} vehicles\n\n", "result")
 
@@ -514,6 +566,56 @@ class ResultsTab(ttk.Frame):
             self.text_widget.insert("end", text, tag)
         else:
             self.text_widget.insert("end", text)
+
+    def append_volume_summary(self, volume_infos):
+        """Append ventilation volume summaries. volume_infos: list of dicts."""
+        self.text_widget.config(state="normal")
+        self._add_text("\n" + "-"*80 + "\n", "heading")
+        self._add_text("VENTILATION VOLUME SUMMARY\n", "heading")
+        self._add_text("-"*80 + "\n\n")
+        for info in volume_infos:
+            self._add_text(f"Direction: {info.get('direction','')}\n", "subheading")
+            self._add_text(f"Design speed: {info.get('design_speed', '')} km/h\n")
+            self._add_text(f"Length: {info.get('length_km', info.get('Lr_m',0)/1000):.3f} km\n")
+            self._add_text(f"Max gradient: {info.get('max_gradient', 0)} %\n")
+            self._add_text(f"Lanes: {info.get('lanes', 1)}\n")
+            self._add_text(f"Capacity per lane: {info.get('cap_per_lane', 0)} PCU/hr\n")
+            self._add_text(f"Total capacity: {info.get('total_capacity', 0)} PCU/hr\n")
+            self._add_text(f"Ar: {info.get('Ar', 0)} m², Lp: {info.get('Lp', 0)} m, Dr: {info.get('Dr', 0):.4f} m\n\n")
+        self.text_widget.config(state="disabled")
+    
+    def append_traffic_summary(self, traffic_logic):
+        """Append traffic estimation summary."""
+        self.text_widget.config(state="normal")
+        self._add_text("\n" + "-"*80 + "\n", "heading")
+        self._add_text("ESTIMATED TRAFFIC VOLUME SUMMARY\n", "heading")
+        self._add_text("-"*80 + "\n\n")
+        
+        if not traffic_logic.batch:
+            self._add_text("No traffic data computed.\n\n")
+        else:
+            for entry in traffic_logic.batch:
+                if not entry.result:
+                    continue
+                res = entry.result
+                inp = entry.inputs
+                
+                self._add_text(f"Year: {entry.year}\n", "subheading")
+                self._add_text(f"  Passenger Vehicles:       {inp.passenger_aadt:,.0f}\n")
+                self._add_text(f"    - Gasoline (60%):       {res.counts.get('passengerGasoline', 0):,.0f}\n")
+                self._add_text(f"    - Diesel (40%):         {res.counts.get('passengerDiesel', 0):,.0f}\n")
+                self._add_text(f"  Bus Small:                {inp.bus_small:,.0f}\n")
+                self._add_text(f"  Bus Large:                {inp.bus_large:,.0f}\n")
+                self._add_text(f"  Truck Small:              {inp.truck_small:,.0f}\n")
+                self._add_text(f"  Truck Medium:             {inp.truck_medium:,.0f}\n")
+                self._add_text(f"  Truck Large:              {inp.truck_large:,.0f}\n")
+                self._add_text(f"  Truck Special:            {inp.truck_special:,.0f}\n")
+                self._add_text(f"  Total AADT:               ", "result")
+                self._add_text(f"{res.total_aadt:,.0f}\n", "result")
+                self._add_text(f"  Heavy Vehicle Mix:        ", "result")
+                self._add_text(f"{res.heavy_vehicle_mix_pt:.2f}%\n\n", "result")
+        
+        self.text_widget.config(state="disabled")
 
 
 class JetFanCalculatorWindow(tk.Toplevel):
@@ -714,21 +816,601 @@ class TunnelGeometry(ttk.LabelFrame):
 
 
 class SummaryRow(ttk.Frame):
-    """Displays provided stats and traffic dictionaries in two rows."""
+    """Displays provided stats and traffic dictionaries in two rows and allows refresh."""
     def __init__(self, master, stats, traffic, t, **kwargs):
         super().__init__(master, **kwargs)
+        self._stats = stats
+        self._traffic = traffic
+        self._stat_labels = {}
+        self._traffic_labels = {}
+
         col = 0
         ttk.Label(self, text="Stats:", font=("Arial", 10, "bold")).grid(row=0, column=col, sticky="w", padx=4, pady=2)
         col += 1
-        for key, value in stats.items():
-            ttk.Label(self, text=f"{key}: {value}").grid(row=0, column=col, sticky="w", padx=4, pady=2)
+        for key, value in self._stats.items():
+            lbl = ttk.Label(self, text=f"{key}: {value}")
+            lbl.grid(row=0, column=col, sticky="w", padx=4, pady=2)
+            self._stat_labels[key] = lbl
             col += 1
 
         ttk.Label(self, text="Traffic:", font=("Arial", 10, "bold")).grid(row=1, column=0, sticky="w", padx=4, pady=2)
         col = 1
-        for key, value in traffic.items():
-            ttk.Label(self, text=f"{key}: {value}").grid(row=1, column=col, sticky="w", padx=4, pady=2)
+        for key, value in self._traffic.items():
+            lbl = ttk.Label(self, text=f"{key}: {value}")
+            lbl.grid(row=1, column=col, sticky="w", padx=4, pady=2)
+            self._traffic_labels[key] = lbl
             col += 1
+
+    def set_data(self, stats=None, traffic=None):
+        if stats is not None:
+            self._stats.update(stats)
+            for key, value in stats.items():
+                if key in self._stat_labels:
+                    self._stat_labels[key].configure(text=f"{key}: {value}")
+        if traffic is not None:
+            self._traffic.update(traffic)
+            for key, value in traffic.items():
+                if key in self._traffic_labels:
+                    self._traffic_labels[key].configure(text=f"{key}: {value}")
+
+
+class VentilationVolumeTab(ttk.Frame):
+    """Tab for Calculate Ventilation Volume functionality."""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._build_interface()
+
+    def _build_interface(self):
+        # Speed capacity per lane table (PCU/hr·lane)
+        self.SPEED_CAPACITY_TABLE = {80: 2000, 100: 2200, 120: 2300}
+
+        # Translation-like dict
+        t = {
+            "dir1Title": "Masan → Jinju",
+            "dir2Title": "Jinju → Masan",
+            "numberOfSectionsLabel": "Number of sections",
+            "averageElevationLabel": "Average elevation",
+        }
+
+        # State variables
+        self.sectionCountMasanToJinju = tk.IntVar(value=10)
+        self.sectionCountJinjuToMasan = tk.IntVar(value=10)
+        self.avgElevationMasanToJinju = tk.DoubleVar(value=0.0)
+        self.avgElevationJinjuToMasan = tk.DoubleVar(value=0.0)
+        # Ventilation design speeds (80/100/120)
+        self.designSpeedMasanToJinju = tk.IntVar(value=80)
+        self.designSpeedJinjuToMasan = tk.IntVar(value=80)
+        self.tunnelArMasanToJinju = tk.DoubleVar(value=0.0)
+        self.tunnelLpMasanToJinju = tk.DoubleVar(value=0.0)
+        self.tunnelArJinjuToMasan = tk.DoubleVar(value=0.0)
+        self.tunnelLpJinjuToMasan = tk.DoubleVar(value=0.0)
+        # Total length by direction (m)
+        self.totalLengthMasanToJinju_m = tk.DoubleVar(value=0.0)
+        self.totalLengthJinjuToMasan_m = tk.DoubleVar(value=0.0)
+
+        # Example data containers
+        self.statsMasanToJinju = {"length_km": 0.0, "max_gradient": 0.0, "lanes": 1, "cap_per_lane": 0, "total_capacity": 0}
+        self.statsJinjuToMasan = {"length_km": 0.0, "max_gradient": 0.0, "lanes": 1, "cap_per_lane": 0, "total_capacity": 0}
+        self.trafficMasanToJinju = {"AADT": 0, "trucks_pct": 0}
+        self.trafficJinjuToMasan = {"AADT": 0, "trucks_pct": 0}
+        self.segmentsMasanToJinju = []
+        self.segmentsJinjuToMasan = []
+
+        def handleSectionCountChange(direction, value):
+            try:
+                v = int(value)
+            except ValueError:
+                return
+            v = max(1, min(50, v))
+            if direction == "MasanToJinju":
+                self.sectionCountMasanToJinju.set(v)
+                self._update_summary("MasanToJinju")
+            elif direction == "JinjuToMasan":
+                self.sectionCountJinjuToMasan.set(v)
+                self._update_summary("JinjuToMasan")
+
+        # Geometry callbacks (placeholders)
+        def onArChangeMasan(val):
+            pass
+        def onLpChangeMasan(val):
+            pass
+        def onArChangeJinju(val):
+            pass
+        def onLpChangeJinju(val):
+            pass
+
+        # Create scrollable frame
+        canvas = tk.Canvas(self)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        card_padding = {"padx": 15, "pady": 10}
+
+        # Direction 1 card
+        card1 = ttk.Frame(scrollable_frame, relief="raised", borderwidth=1, padding="10 10 10 10")
+        card1.pack(fill="x", **card_padding)
+        header1 = ttk.Frame(card1)
+        header1.pack(fill="x", pady=(0, 10))
+        ttk.Label(header1, text=t["dir1Title"], font=("Arial", 14, "bold")).pack(side="left", padx=(0, 10))
+        controls1 = ttk.Frame(header1)
+        controls1.pack(side="right", padx=(10, 0))
+        sections_group1 = ttk.Frame(controls1)
+        sections_group1.pack(side="left", padx=8)
+        ttk.Label(sections_group1, text=t["numberOfSectionsLabel"] + ":").pack(side="left")
+        tk.Spinbox(
+            sections_group1,
+            from_=1,
+            to=50,
+            textvariable=self.sectionCountMasanToJinju,
+            width=5,
+            command=lambda: handleSectionCountChange("MasanToJinju", self.sectionCountMasanToJinju.get()),
+        ).pack(side="left")
+        elevation_group1 = ttk.Frame(controls1)
+        elevation_group1.pack(side="left", padx=8)
+        ttk.Label(elevation_group1, text=t["averageElevationLabel"] + ":").pack(side="left")
+        ttk.Entry(elevation_group1, textvariable=self.avgElevationMasanToJinju, width=10).pack(side="left")
+
+        # Ventilation Design Speed (80/100/120)
+        speed_group1 = ttk.Frame(controls1)
+        speed_group1.pack(side="left", padx=8)
+        ttk.Label(speed_group1, text="Ventilation Design Speed:").pack(side="left")
+        ttk.Combobox(
+            speed_group1,
+            textvariable=self.designSpeedMasanToJinju,
+            values=[80, 100, 120],
+            state="readonly",
+            width=6,
+        ).pack(side="left")
+        SegmentsTableTransposed(card1, "MasanToJinju", self.segmentsMasanToJinju, lambda *_: self._update_summary("MasanToJinju"), t).pack(fill="x", pady=4)
+        TunnelGeometry(
+            card1,
+            self.tunnelArMasanToJinju,
+            self.tunnelLpMasanToJinju,
+            self.sectionCountMasanToJinju,
+            self.segmentsMasanToJinju,
+            lambda *a: self._update_summary("MasanToJinju"),
+            onArChangeMasan,
+            onLpChangeMasan,
+            t,
+        ).pack(fill="x", pady=4)
+        self.summaryRowMasanToJinju = SummaryRow(card1, self.statsMasanToJinju, self.trafficMasanToJinju, t)
+        self.summaryRowMasanToJinju.pack(fill="x", pady=4)
+
+        # Direction 2 card
+        card2 = ttk.Frame(scrollable_frame, relief="raised", borderwidth=1, padding="10 10 10 10")
+        card2.pack(fill="x", **card_padding)
+        header2 = ttk.Frame(card2)
+        header2.pack(fill="x", pady=(0, 10))
+        ttk.Label(header2, text=t["dir2Title"], font=("Arial", 14, "bold")).pack(side="left", padx=(0, 10))
+        controls2 = ttk.Frame(header2)
+        controls2.pack(side="right", padx=(10, 0))
+        sections_group2 = ttk.Frame(controls2)
+        sections_group2.pack(side="left", padx=8)
+        ttk.Label(sections_group2, text=t["numberOfSectionsLabel"] + ":").pack(side="left")
+        tk.Spinbox(
+            sections_group2,
+            from_=1,
+            to=50,
+            textvariable=self.sectionCountJinjuToMasan,
+            width=5,
+            command=lambda: handleSectionCountChange("JinjuToMasan", self.sectionCountJinjuToMasan.get()),
+        ).pack(side="left")
+        elevation_group2 = ttk.Frame(controls2)
+        elevation_group2.pack(side="left", padx=8)
+        ttk.Label(elevation_group2, text=t["averageElevationLabel"] + ":").pack(side="left")
+        ttk.Entry(elevation_group2, textvariable=self.avgElevationJinjuToMasan, width=10).pack(side="left")
+
+        # Ventilation Design Speed (80/100/120)
+        speed_group2 = ttk.Frame(controls2)
+        speed_group2.pack(side="left", padx=8)
+        ttk.Label(speed_group2, text="Ventilation Design Speed:").pack(side="left")
+        ttk.Combobox(
+            speed_group2,
+            textvariable=self.designSpeedJinjuToMasan,
+            values=[80, 100, 120],
+            state="readonly",
+            width=6,
+        ).pack(side="left")
+        SegmentsTableTransposed(card2, "JinjuToMasan", self.segmentsJinjuToMasan, lambda *_: self._update_summary("JinjuToMasan"), t).pack(fill="x", pady=4)
+        TunnelGeometry(
+            card2,
+            self.tunnelArJinjuToMasan,
+            self.tunnelLpJinjuToMasan,
+            self.sectionCountJinjuToMasan,
+            self.segmentsJinjuToMasan,
+            lambda *a: self._update_summary("JinjuToMasan"),
+            onArChangeJinju,
+            onLpChangeJinju,
+            t,
+        ).pack(fill="x", pady=4)
+        self.summaryRowJinjuToMasan = SummaryRow(card2, self.statsJinjuToMasan, self.trafficJinjuToMasan, t)
+        self.summaryRowJinjuToMasan.pack(fill="x", pady=4)
+
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Trace design speed changes to refresh summary
+        self.designSpeedMasanToJinju.trace_add("write", lambda *a: self._update_summary("MasanToJinju"))
+        self.designSpeedJinjuToMasan.trace_add("write", lambda *a: self._update_summary("JinjuToMasan"))
+
+        # Initial compute
+        self._update_summary("MasanToJinju")
+        self._update_summary("JinjuToMasan")
+
+        # Add traffic estimation panel after direction cards
+        self._add_traffic_estimation_panel(scrollable_frame)
+
+    def _update_summary(self, direction):
+        if direction == "MasanToJinju":
+            segments = self.segmentsMasanToJinju
+            design_speed = int(self.designSpeedMasanToJinju.get())
+            stats = self.statsMasanToJinju
+            row = self.summaryRowMasanToJinju
+            count = int(self.sectionCountMasanToJinju.get())
+        else:
+            segments = self.segmentsJinjuToMasan
+            design_speed = int(self.designSpeedJinjuToMasan.get())
+            stats = self.statsJinjuToMasan
+            row = self.summaryRowJinjuToMasan
+            count = int(self.sectionCountJinjuToMasan.get())
+
+        # Ensure segment list has desired size
+        while len(segments) < max(1, count):
+            segments.append({"gradient": 0.0, "length": 0.0, "lanes": 1})
+        if len(segments) > count:
+            segments[:] = segments[:count]
+
+        total_length_m = sum(float(s.get("length", 0.0) or 0.0) for s in segments)
+        max_gradient = max(float(s.get("gradient", 0.0) or 0.0) for s in segments) if segments else 0.0
+        max_lanes = max(int(s.get("lanes", 1) or 1) for s in segments) if segments else 1
+
+        cap_per_lane = self.SPEED_CAPACITY_TABLE.get(design_speed, 2000)
+        total_capacity = cap_per_lane * max_lanes
+
+        stats_update = {
+            "length_km": round(total_length_m / 1000.0, 3),
+            "max_gradient": round(max_gradient, 2),
+            "lanes": max_lanes,
+            "cap_per_lane": cap_per_lane,
+            "total_capacity": total_capacity,
+        }
+
+        stats.update(stats_update)
+        row.set_data(stats=stats_update)
+        # update total length variable for external consumers
+        if direction == "MasanToJinju":
+            self.totalLengthMasanToJinju_m.set(total_length_m)
+        else:
+            self.totalLengthJinjuToMasan_m.set(total_length_m)
+
+    def get_params_for_jet(self, direction="MasanToJinju"):
+        if direction == "MasanToJinju":
+            Ar = float(self.tunnelArMasanToJinju.get())
+            Lp = float(self.tunnelLpMasanToJinju.get())
+            Lr_m = float(self.totalLengthMasanToJinju_m.get())
+        else:
+            Ar = float(self.tunnelArJinjuToMasan.get())
+            Lp = float(self.tunnelLpJinjuToMasan.get())
+            Lr_m = float(self.totalLengthJinjuToMasan_m.get())
+        Dr = (4.0 * Ar / Lp) if Lp not in (0, 0.0) else 0.0
+        return {"Ar": Ar, "Lp": Lp, "Lr_m": Lr_m, "Dr": Dr}
+
+    def get_volume_summary(self, direction="MasanToJinju"):
+        if direction == "MasanToJinju":
+            stats = dict(self.statsMasanToJinju)
+            design_speed = int(self.designSpeedMasanToJinju.get())
+            params = self.get_params_for_jet(direction)
+            dir_label = "Masan → Jinju"
+        else:
+            stats = dict(self.statsJinjuToMasan)
+            design_speed = int(self.designSpeedJinjuToMasan.get())
+            params = self.get_params_for_jet(direction)
+            dir_label = "Jinju → Masan"
+        stats.update({
+            "direction": dir_label,
+            "design_speed": design_speed,
+            "Ar": params["Ar"],
+            "Lp": params["Lp"],
+            "Dr": params["Dr"],
+            "Lr_m": params["Lr_m"],
+        })
+        return stats
+
+    def _add_traffic_estimation_panel(self, parent):
+        """Add traffic estimation module panel."""
+        from traffic_estimation_module import TrafficEstimationLogic
+
+        # Initialize traffic estimation logic
+        self.traffic_logic = TrafficEstimationLogic(direction="Both Directions")
+        self.traffic_rows = []  # Store row data
+
+        # Create card for traffic estimation
+        traffic_card = ttk.Frame(parent, relief="raised", borderwidth=1, padding="10 10 10 10")
+        traffic_card.pack(fill="x", padx=15, pady=10)
+
+        # Header
+        header = ttk.Frame(traffic_card)
+        header.pack(fill="x", pady=(0, 10))
+        ttk.Label(header, text="Estimated Traffic Volume", font=("Arial", 14, "bold")).pack(side="left")
+
+        # Input frame for AADT values
+        input_frame = ttk.LabelFrame(traffic_card, text="AADT Input (Annual Average Daily Traffic)", padding="10 10 10 10")
+        input_frame.pack(fill="x", pady=5)
+
+        # Create scrollable frame for rows
+        canvas = tk.Canvas(input_frame, height=200)
+        scrollbar = ttk.Scrollbar(input_frame, orient="vertical", command=canvas.yview)
+        self.traffic_rows_frame = ttk.Frame(canvas)
+
+        self.traffic_rows_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=self.traffic_rows_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Header row with column labels
+        header_labels = ["Year", "Passenger Vehicles", "Bus Small", "Bus Large", "Truck Small", "Truck Medium", "Truck Large", "Truck Special", "Action"]
+        for col, label in enumerate(header_labels):
+            ttk.Label(self.traffic_rows_frame, text=label, font=("Arial", 9, "bold")).grid(row=0, column=col, padx=5, pady=5, sticky="w")
+
+        # Add Row button
+        add_row_btn_frame = ttk.Frame(traffic_card)
+        add_row_btn_frame.pack(fill="x", pady=5)
+        ttk.Button(add_row_btn_frame, text="+ Add Row", command=self._add_traffic_row).pack(side="left", padx=5)
+
+        # Add first row by default
+        self._add_traffic_row()
+
+        # Buttons frame
+        button_frame = ttk.Frame(traffic_card)
+        button_frame.pack(fill="x", pady=5)
+
+        ttk.Button(button_frame, text="Import CSV", command=self._import_traffic_csv).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Compute All", command=self._compute_all_traffic).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Export CSV", command=self._export_traffic_csv).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Export PDF", command=self._export_traffic_pdf).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Clear All", command=self._clear_traffic).pack(side="left", padx=5)
+
+        # Results frame
+        results_frame = ttk.LabelFrame(traffic_card, text="Traffic Estimation Results", padding="10 10 10 10")
+        results_frame.pack(fill="both", expand=True, pady=5)
+
+        # Results text widget
+        result_scroll = ttk.Scrollbar(results_frame)
+        result_scroll.pack(side="right", fill="y")
+
+        self.traffic_result_text = tk.Text(results_frame, wrap="word", height=10, yscrollcommand=result_scroll.set, font=("Courier New", 9))
+        self.traffic_result_text.pack(side="left", fill="both", expand=True)
+        result_scroll.config(command=self.traffic_result_text.yview)
+
+    def _add_traffic_row(self):
+        """Add a new row for traffic input."""
+        row_num = len(self.traffic_rows) + 1
+        
+        # Create variables for this row
+        row_vars = {
+            'year': tk.IntVar(value=2024),
+            'passenger_vehicles': tk.DoubleVar(value=0.0),
+            'bus_small': tk.DoubleVar(value=0.0),
+            'bus_large': tk.DoubleVar(value=0.0),
+            'truck_small': tk.DoubleVar(value=0.0),
+            'truck_medium': tk.DoubleVar(value=0.0),
+            'truck_large': tk.DoubleVar(value=0.0),
+            'truck_special': tk.DoubleVar(value=0.0),
+        }
+        
+        # Create entries
+        entries = []
+        ttk.Entry(self.traffic_rows_frame, textvariable=row_vars['year'], width=8).grid(row=row_num, column=0, padx=5, pady=2)
+        ttk.Entry(self.traffic_rows_frame, textvariable=row_vars['passenger_vehicles'], width=10).grid(row=row_num, column=1, padx=5, pady=2)
+        ttk.Entry(self.traffic_rows_frame, textvariable=row_vars['bus_small'], width=10).grid(row=row_num, column=2, padx=5, pady=2)
+        ttk.Entry(self.traffic_rows_frame, textvariable=row_vars['bus_large'], width=10).grid(row=row_num, column=3, padx=5, pady=2)
+        ttk.Entry(self.traffic_rows_frame, textvariable=row_vars['truck_small'], width=10).grid(row=row_num, column=4, padx=5, pady=2)
+        ttk.Entry(self.traffic_rows_frame, textvariable=row_vars['truck_medium'], width=10).grid(row=row_num, column=5, padx=5, pady=2)
+        ttk.Entry(self.traffic_rows_frame, textvariable=row_vars['truck_large'], width=10).grid(row=row_num, column=6, padx=5, pady=2)
+        ttk.Entry(self.traffic_rows_frame, textvariable=row_vars['truck_special'], width=10).grid(row=row_num, column=7, padx=5, pady=2)
+        
+        # Delete button
+        delete_btn = ttk.Button(self.traffic_rows_frame, text="Delete", command=lambda: self._delete_traffic_row(row_num - 1))
+        delete_btn.grid(row=row_num, column=8, padx=5, pady=2)
+        
+        self.traffic_rows.append({'vars': row_vars, 'widgets': entries, 'delete_btn': delete_btn})
+    
+    def _delete_traffic_row(self, index):
+        """Delete a traffic row."""
+        if len(self.traffic_rows) <= 1:
+            messagebox.showwarning("Cannot Delete", "At least one row must remain.")
+            return
+        
+        # Destroy widgets for this row
+        for widget in self.traffic_rows_frame.grid_slaves(row=index + 1):
+            widget.destroy()
+        
+        # Remove from list
+        self.traffic_rows.pop(index)
+        
+        # Rebuild the grid to fix row numbers
+        self._rebuild_traffic_grid()
+    
+    def _rebuild_traffic_grid(self):
+        """Rebuild the traffic input grid after deletion."""
+        # Clear all widgets except header
+        for widget in self.traffic_rows_frame.grid_slaves():
+            row = widget.grid_info().get('row', 0)
+            if row > 0:
+                widget.destroy()
+        
+        # Recreate rows
+        temp_rows = self.traffic_rows[:]
+        self.traffic_rows.clear()
+        
+        for row_data in temp_rows:
+            row_num = len(self.traffic_rows) + 1
+            vars_dict = row_data['vars']
+            
+            ttk.Entry(self.traffic_rows_frame, textvariable=vars_dict['year'], width=8).grid(row=row_num, column=0, padx=5, pady=2)
+            ttk.Entry(self.traffic_rows_frame, textvariable=vars_dict['passenger_vehicles'], width=10).grid(row=row_num, column=1, padx=5, pady=2)
+            ttk.Entry(self.traffic_rows_frame, textvariable=vars_dict['bus_small'], width=10).grid(row=row_num, column=2, padx=5, pady=2)
+            ttk.Entry(self.traffic_rows_frame, textvariable=vars_dict['bus_large'], width=10).grid(row=row_num, column=3, padx=5, pady=2)
+            ttk.Entry(self.traffic_rows_frame, textvariable=vars_dict['truck_small'], width=10).grid(row=row_num, column=4, padx=5, pady=2)
+            ttk.Entry(self.traffic_rows_frame, textvariable=vars_dict['truck_medium'], width=10).grid(row=row_num, column=5, padx=5, pady=2)
+            ttk.Entry(self.traffic_rows_frame, textvariable=vars_dict['truck_large'], width=10).grid(row=row_num, column=6, padx=5, pady=2)
+            ttk.Entry(self.traffic_rows_frame, textvariable=vars_dict['truck_special'], width=10).grid(row=row_num, column=7, padx=5, pady=2)
+            
+            delete_btn = ttk.Button(self.traffic_rows_frame, text="Delete", command=lambda idx=len(self.traffic_rows): self._delete_traffic_row(idx))
+            delete_btn.grid(row=row_num, column=8, padx=5, pady=2)
+            
+            self.traffic_rows.append({'vars': vars_dict, 'widgets': [], 'delete_btn': delete_btn})
+
+    def _import_traffic_csv(self):
+        """Import traffic data from CSV."""
+        filename = filedialog.askopenfilename(
+            title="Import Traffic CSV",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if not filename:
+            return
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                csv_text = f.read()
+            self.traffic_logic.import_csv_data(csv_text)
+            self._display_traffic_results()
+            messagebox.showinfo("Success", f"Imported {len(self.traffic_logic.batch)} traffic records")
+        except Exception as e:
+            messagebox.showerror("Import Error", str(e))
+
+    def _compute_all_traffic(self):
+        """Compute traffic estimation for all rows."""
+        try:
+            # Clear previous batch
+            self.traffic_logic.clear_batch()
+            
+            for row_data in self.traffic_rows:
+                vars_dict = row_data['vars']
+                year = int(vars_dict['year'].get())
+                passenger_vehicles = float(vars_dict['passenger_vehicles'].get())
+                bus_small = float(vars_dict['bus_small'].get())
+                bus_large = float(vars_dict['bus_large'].get())
+                truck_small = float(vars_dict['truck_small'].get())
+                truck_medium = float(vars_dict['truck_medium'].get())
+                truck_large = float(vars_dict['truck_large'].get())
+                truck_special = float(vars_dict['truck_special'].get())
+                
+                # Calculate passenger split: 60% Gasoline, 40% Diesel
+                passenger_gasoline = passenger_vehicles * 0.60
+                passenger_diesel = passenger_vehicles * 0.40
+                passenger_aadt = passenger_vehicles
+                
+                result = self.traffic_logic.add_manual_entry(
+                    year=year,
+                    passenger_aadt=passenger_aadt,
+                    bus_small=bus_small,
+                    bus_large=bus_large,
+                    truck_small=truck_small,
+                    truck_medium=truck_medium,
+                    truck_large=truck_large,
+                    truck_special=truck_special,
+                )
+            
+            self._display_traffic_results()
+            messagebox.showinfo("Success", f"Computed {len(self.traffic_rows)} traffic entries")
+        except Exception as e:
+            messagebox.showerror("Computation Error", str(e))
+
+    def _export_traffic_csv(self):
+        """Export traffic data to CSV."""
+        if not self.traffic_logic.batch:
+            messagebox.showwarning("No Data", "No traffic data to export")
+            return
+        filename = filedialog.asksaveasfilename(
+            title="Export Traffic CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if not filename:
+            return
+        try:
+            csv_content = self.traffic_logic.export_csv()
+            from traffic_data_io import save_csv_to_file
+            save_csv_to_file(csv_content, filename)
+            messagebox.showinfo("Success", f"Exported to {filename}")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
+
+    def _export_traffic_pdf(self):
+        """Export traffic data to PDF (via HTML browser preview)."""
+        if not self.traffic_logic.batch:
+            messagebox.showwarning("No Data", "No traffic data to export")
+            return
+        try:
+            filename = self.traffic_logic.open_pdf_preview(title="Traffic Estimation Results")
+            messagebox.showinfo("Success", f"PDF preview opened: {filename}\nUse browser Print to save as PDF")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
+
+    def _clear_traffic(self):
+        """Clear all traffic estimation data."""
+        self.traffic_logic.clear_batch()
+        self.traffic_result_text.delete(1.0, "end")
+        self.traffic_result_text.insert("end", "Traffic data cleared.\n")
+        
+        # Clear all rows and add one fresh row
+        for row_data in self.traffic_rows:
+            for widget in self.traffic_rows_frame.grid_slaves():
+                if widget.grid_info().get('row', 0) > 0:
+                    widget.destroy()
+        self.traffic_rows.clear()
+        self._add_traffic_row()
+
+    def _display_traffic_results(self):
+        """Display traffic estimation results in the text widget."""
+        self.traffic_result_text.delete(1.0, "end")
+        if not self.traffic_logic.batch:
+            self.traffic_result_text.insert("end", "No traffic data.\n")
+            return
+
+        self.traffic_result_text.insert("end", "="*80 + "\n")
+        self.traffic_result_text.insert("end", "ESTIMATED TRAFFIC VOLUME RESULTS\n")
+        self.traffic_result_text.insert("end", "="*80 + "\n\n")
+
+        for entry in self.traffic_logic.batch:
+            if not entry.result:
+                continue
+            res = entry.result
+            inp = entry.inputs
+
+            self.traffic_result_text.insert("end", f"Year: {entry.year}\n")
+            self.traffic_result_text.insert("end", f"Direction: {entry.direction}\n")
+            self.traffic_result_text.insert("end", "-"*60 + "\n")
+            self.traffic_result_text.insert("end", f"  Passenger Vehicles: {inp.passenger_aadt:,.0f}\n")
+            self.traffic_result_text.insert("end", f"    - Gasoline (60%): {res.counts.get('passengerGasoline', 0):,.0f}\n")
+            self.traffic_result_text.insert("end", f"    - Diesel (40%):   {res.counts.get('passengerDiesel', 0):,.0f}\n")
+            self.traffic_result_text.insert("end", f"  Bus Small:          {inp.bus_small:,.0f}\n")
+            self.traffic_result_text.insert("end", f"  Bus Large:          {inp.bus_large:,.0f}\n")
+            self.traffic_result_text.insert("end", f"  Truck Small:        {inp.truck_small:,.0f}\n")
+            self.traffic_result_text.insert("end", f"  Truck Medium:       {inp.truck_medium:,.0f}\n")
+            self.traffic_result_text.insert("end", f"  Truck Large:        {inp.truck_large:,.0f}\n")
+            self.traffic_result_text.insert("end", f"  Truck Special:      {inp.truck_special:,.0f}\n")
+            self.traffic_result_text.insert("end", f"\n  Total AADT:         {res.total_aadt:,.0f}\n")
+            self.traffic_result_text.insert("end", f"  Heavy Vehicle Mix:  {res.heavy_vehicle_mix_pt:.2f}%\n")
+            self.traffic_result_text.insert("end", "\n  Mix Percentages:\n")
+            for key, val in res.mix_percents.items():
+                self.traffic_result_text.insert("end", f"    {key}: {val:.2f}%\n")
+            self.traffic_result_text.insert("end", "\n")
 
 
 class VentilationVolumeWindow(tk.Toplevel):
@@ -896,120 +1578,63 @@ class VentilationVolumeWindow(tk.Toplevel):
 # 4) Main menu window
 # ----------------------------
 class MainApp(tk.Tk):
-    """Main menu to launch different ventilation calculation programs."""
+    """Main application with tabbed interface."""
     def __init__(self):
         super().__init__()
         self.title("BEC Computational System - Main Menu")
-        self.geometry("600x400")
+        self.geometry("750x800")
         
-        self._build_menu()
+        self._build_interface()
 
-    def _build_menu(self):
+    def _build_interface(self):
         # Title
         title_frame = ttk.Frame(self)
-        title_frame.pack(pady=20)
+        title_frame.pack(fill="x", pady=10)
         
-        title_label = ttk.Label(
-            title_frame,
-            text="BEC Computational System",
-            font=("Arial", 18, "bold"),
-            foreground="#004080"
-        )
-        title_label.pack()
-        
-        subtitle_label = ttk.Label(
-            title_frame,
-            text="Select a calculation module",
-            font=("Arial", 11),
-            foreground="#666666"
-        )
-        subtitle_label.pack(pady=5)
+        left_titles = ttk.Frame(title_frame)
+        left_titles.pack(side="left")
+        title_label = ttk.Label(left_titles, text="BEC Computational System", font=("Arial", 16, "bold"), foreground="#004080")
+        title_label.pack(anchor="w")
+        subtitle_label = ttk.Label(left_titles, text="Select a calculation module", font=("Arial", 10), foreground="#666666")
+        subtitle_label.pack(anchor="w", pady=2)
+
+        # Compute Summary button on the right
+        self.compute_btn = ttk.Button(title_frame, text="Compute Summary", command=self._compute_summary)
+        self.compute_btn.pack(side="right", padx=10)
 
         # Separator
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=20, pady=10)
+        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=20, pady=5)
 
-        # Menu buttons frame
-        menu_frame = ttk.Frame(self)
-        menu_frame.pack(pady=20, padx=40, fill="both", expand=True)
+        # Create notebook for tabs
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # Button style configuration
-        button_width = 40
-        button_padding = 10
+        # Create result tab first
+        result_tab = ResultsTab(notebook)
 
-        # 1. Calculate Ventilation Volume (now placeholder)
-        btn_volume = ttk.Button(
-            menu_frame,
-            text="1. Calculate Ventilation Volume",
-            command=self._open_ventilation_volume,
-            width=button_width
-        )
-        btn_volume.pack(pady=button_padding)
+        # First tab: Calculate Ventilation Volume
+        self.ventilation_volume_tab = VentilationVolumeTab(notebook)
+        notebook.add(self.ventilation_volume_tab, text="Calculate Ventilation Volume")
 
-        # 2. Calculate Ventilation Capacity (Jet Fan)
-        btn_jet_capacity = ttk.Button(
-            menu_frame,
-            text="2. Calculate Ventilation Capacity (Jet Fan)",
-            command=self._open_jet_fan_calculator,
-            width=button_width
-        )
-        btn_jet_capacity.pack(pady=button_padding)
+        # Second tab: Number of Jet Fan (pass result_tab and volume_tab references)
+        self.jet_fan_tab = JetFanTab(notebook, result_tab=result_tab, volume_tab=self.ventilation_volume_tab)
+        notebook.add(self.jet_fan_tab, text="Number of Jet Fan")
 
-        # 3. Emergency Ventilation (placeholder)
-        btn_emergency = ttk.Button(
-            menu_frame,
-            text="3. Emergency Ventilation Calculator (Coming Soon)",
-            command=self._coming_soon,
-            width=button_width,
-            state="disabled"
-        )
-        btn_emergency.pack(pady=button_padding)
+        # Results tab
+        self.results_tab = result_tab
+        notebook.add(self.results_tab, text="Results (summary)")
 
-        # 4. Pressure Analysis (placeholder)
-        btn_pressure = ttk.Button(
-            menu_frame,
-            text="4. Pressure Analysis (Coming Soon)",
-            command=self._coming_soon,
-            width=button_width,
-            state="disabled"
-        )
-        btn_pressure.pack(pady=button_padding)
-
-        # 5. Air Quality Analysis (placeholder)
-        btn_air_quality = ttk.Button(
-            menu_frame,
-            text="5. Air Quality Analysis (Coming Soon)",
-            command=self._coming_soon,
-            width=button_width,
-            state="disabled"
-        )
-        btn_air_quality.pack(pady=button_padding)
-
-        # Separator
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=20, pady=20)
-
-        # Exit button
-        btn_exit = ttk.Button(
-            self,
-            text="Exit",
-            command=self.quit,
-            width=15
-        )
-        btn_exit.pack(pady=10)
-
-    def _open_jet_fan_calculator(self):
-        """Open the Jet Fan Calculator window."""
-        JetFanCalculatorWindow(self)
-
-    def _open_ventilation_volume(self):
-        """Open the Ventilation Volume window."""
-        VentilationVolumeWindow(self)
-
-    def _coming_soon(self):
-        """Placeholder for future modules."""
-        messagebox.showinfo(
-            "Coming Soon",
-            "This module is under development and will be available in a future version."
-        )
+    def _compute_summary(self):
+        # Compute Jet Fan results and publish
+        inp, results = self.jet_fan_tab.compute_and_publish()
+        # Append Ventilation Volume summaries for both directions
+        infos = [
+            self.ventilation_volume_tab.get_volume_summary("MasanToJinju"),
+            self.ventilation_volume_tab.get_volume_summary("JinjuToMasan"),
+        ]
+        self.results_tab.append_volume_summary(infos)
+        # Append Traffic Estimation summary
+        self.results_tab.append_traffic_summary(self.ventilation_volume_tab.traffic_logic)
 
 
 if __name__ == "__main__":

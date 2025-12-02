@@ -10,7 +10,7 @@ class TunnelVentInputs:
     V_kmh: float          # 1. 주행속도 (km/h)
     Qtreq: float          # 2. 소요환기량 Qtreq (m3/s)
     Imax: float           # 3. 최대교통량 [PCU/hr·lane]
-    road_type: int        # 4. 도로종류 (1=국도/고속도로, 2=도심지)
+    road_type: int        # 4. 도로종류 (1=National Road/Expressway, 2=Downtown)
     lanes: int            # 5. 차로수
     Ar: float             # 6. 터널단면적 Ar (m2)
     Lr: float             # 7. 터널길이 Lr (m)
@@ -74,8 +74,8 @@ def compute_traffic_flow(Imax: float, speed_kmh: float, road_type: int) -> int:
     교통량 Q [PCU/hr·lane] for a given speed.
     
     road_type:
-        1 → 국도/고속도로
-        2 → 도심지
+        1 → National Road/Expressway
+        2 → Downtown
     """
     I = float(Imax)
     V = float(speed_kmh)
@@ -84,11 +84,11 @@ def compute_traffic_flow(Imax: float, speed_kmh: float, road_type: int) -> int:
         return 0
 
     if road_type == 1:
-        K = 150.0  # 국도/고속도로
+        K = 150.0  # National Road/Expressway
     elif road_type == 2:
-        K = 165.0  # 도심지
+        K = 165.0  # Downtown
     else:
-        raise ValueError("road_type must be 1 (국도/고속도로) or 2 (도심지).")
+        raise ValueError("road_type must be 1 (National Road/Expressway) or 2 (Downtown).")
 
     numerator = K * I
     denominator = K * V + I * (1.0 - V / 60.0) ** 2
@@ -159,18 +159,21 @@ def compute_Vj(inp: TunnelVentInputs) -> float:
 
 def compute_n(inp: TunnelVentInputs, Vt: float) -> int:
     """
-    터널내 자동차 수 n = ROUND(Q * lanes * Lr / (V * 1000) + 0.4, 0)
-    where Q is computed from traffic flow model
+    터널내 자동차 수 n = ROUND(Q_total_per_sec × 통과시간 + 0.4, 0)
+    Consistent units using Vt in m/s:
+      - Q (from flow model) is in [PCU/hr·lane]
+      - Convert to per-second and multiply by travel time Lr/Vt
+      n = ROUND((Q*lanes/3600) × (Lr/Vt) + 0.4)
+        = ROUND(Q * lanes * Lr / (3600 * Vt) + 0.4)
     """
     # Calculate traffic flow Q [PCU/hr·lane]
     Q = compute_traffic_flow(inp.Imax, inp.V_kmh, inp.road_type)
-    
-    # Total vehicles in tunnel: Q * lanes * Lr / (V * 1000)
-    # Lr is in meters, V is in km/h, so divide by 1000 to convert
-    if inp.V_kmh <= 0:
+
+    # Guard for zero/negative speeds
+    if Vt <= 0:
         return 0
-    
-    n = Q * inp.lanes * inp.Lr / (inp.V_kmh * 1000.0)
+
+    n = Q * inp.lanes * inp.Lr / (3600.0 * Vt)
     return round(n + 0.4)
 
 
