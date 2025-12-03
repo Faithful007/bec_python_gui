@@ -601,8 +601,17 @@ class ResultsTab(ttk.Frame):
         self._add_text("ESTIMATED TRAFFIC VOLUME SUMMARY\n", "heading")
         self._add_text("-"*80 + "\n\n")
         
-        # Display Masan → Jinju
-        self._add_text("Direction: Masan → Jinju\n", "subheading")
+        # Display Direction 1 (dynamically get names from parent)
+        dir1_name = "Masan"
+        dir2_name = "Jinju"
+        try:
+            # Try to get dynamic names from volume tab
+            if hasattr(self.master, 'volume_tab'):
+                dir1_name = self.master.volume_tab.dir1Name.get()
+                dir2_name = self.master.volume_tab.dir2Name.get()
+        except:
+            pass
+        self._add_text(f"Direction: {dir1_name} → {dir2_name}\n", "subheading")
         self._add_text("-"*60 + "\n")
         if not traffic_logic_masan_jinju.batch:
             self._add_text("No traffic data computed.\n\n")
@@ -629,7 +638,7 @@ class ResultsTab(ttk.Frame):
                 self._add_text(f"{res.heavy_vehicle_mix_pt:.2f}%\n\n", "result")
         
         # Display Jinju → Masan
-        self._add_text("\nDirection: Jinju → Masan\n", "subheading")
+        self._add_text(f"\nDirection: {dir2_name} → {dir1_name}\n", "subheading")
         self._add_text("-"*60 + "\n")
         if not traffic_logic_jinju_masan.batch:
             self._add_text("No traffic data computed.\n\n")
@@ -904,10 +913,14 @@ class VentilationVolumeTab(ttk.Frame):
         # Speed capacity per lane table (PCU/hr·lane)
         self.SPEED_CAPACITY_TABLE = {80: 2000, 100: 2200, 120: 2300}
 
+        # Direction name variables (editable)
+        self.dir1Name = tk.StringVar(value="FROM")
+        self.dir2Name = tk.StringVar(value="TO")
+
         # Translation-like dict
         t = {
-            "dir1Title": "Masan → Jinju",
-            "dir2Title": "Jinju → Masan",
+            "dir1Title": self.dir1Name,
+            "dir2Title": self.dir2Name,
             "numberOfSectionsLabel": "Number of sections",
             "averageElevationLabel": "Average elevation",
         }
@@ -979,7 +992,13 @@ class VentilationVolumeTab(ttk.Frame):
         card1.pack(fill="x", **card_padding)
         header1 = ttk.Frame(card1)
         header1.pack(fill="x", pady=(0, 10))
-        ttk.Label(header1, text=t["dir1Title"], font=("Arial", 14, "bold")).pack(side="left", padx=(0, 10))
+        
+        # Editable direction name
+        dir_name_frame1 = ttk.Frame(header1)
+        dir_name_frame1.pack(side="left", padx=(0, 10))
+        ttk.Entry(dir_name_frame1, textvariable=self.dir1Name, width=15, font=("Arial", 14, "bold")).pack(side="left", padx=(0, 5))
+        ttk.Label(dir_name_frame1, text="→", font=("Arial", 14, "bold")).pack(side="left", padx=(0, 5))
+        ttk.Entry(dir_name_frame1, textvariable=self.dir2Name, width=15, font=("Arial", 14, "bold")).pack(side="left")
         controls1 = ttk.Frame(header1)
         controls1.pack(side="right", padx=(10, 0))
         sections_group1 = ttk.Frame(controls1)
@@ -1029,7 +1048,13 @@ class VentilationVolumeTab(ttk.Frame):
         card2.pack(fill="x", **card_padding)
         header2 = ttk.Frame(card2)
         header2.pack(fill="x", pady=(0, 10))
-        ttk.Label(header2, text=t["dir2Title"], font=("Arial", 14, "bold")).pack(side="left", padx=(0, 10))
+        
+        # Editable direction name (reverse order)
+        dir_name_frame2 = ttk.Frame(header2)
+        dir_name_frame2.pack(side="left", padx=(0, 10))
+        ttk.Entry(dir_name_frame2, textvariable=self.dir2Name, width=15, font=("Arial", 14, "bold")).pack(side="left", padx=(0, 5))
+        ttk.Label(dir_name_frame2, text="→", font=("Arial", 14, "bold")).pack(side="left", padx=(0, 5))
+        ttk.Entry(dir_name_frame2, textvariable=self.dir1Name, width=15, font=("Arial", 14, "bold")).pack(side="left")
         controls2 = ttk.Frame(header2)
         controls2.pack(side="right", padx=(10, 0))
         sections_group2 = ttk.Frame(controls2)
@@ -1078,9 +1103,17 @@ class VentilationVolumeTab(ttk.Frame):
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
+        # Store references to traffic card frames for later updates
+        self.traffic_card1_frame = None
+        self.traffic_card2_frame = None
+        
         # Trace design speed changes to refresh summary
         self.designSpeedMasanToJinju.trace_add("write", lambda *a: self._update_summary("MasanToJinju"))
         self.designSpeedJinjuToMasan.trace_add("write", lambda *a: self._update_summary("JinjuToMasan"))
+
+        # Trace direction name changes to update traffic panel labels
+        self.dir1Name.trace_add("write", lambda *a: self._update_traffic_labels())
+        self.dir2Name.trace_add("write", lambda *a: self._update_traffic_labels())
 
         # Initial compute
         self._update_summary("MasanToJinju")
@@ -1149,12 +1182,12 @@ class VentilationVolumeTab(ttk.Frame):
             stats = dict(self.statsMasanToJinju)
             design_speed = int(self.designSpeedMasanToJinju.get())
             params = self.get_params_for_jet(direction)
-            dir_label = "Masan → Jinju"
+            dir_label = f"{self.dir1Name.get()} → {self.dir2Name.get()}"
         else:
             stats = dict(self.statsJinjuToMasan)
             design_speed = int(self.designSpeedJinjuToMasan.get())
             params = self.get_params_for_jet(direction)
-            dir_label = "Jinju → Masan"
+            dir_label = f"{self.dir2Name.get()} → {self.dir1Name.get()}"
         stats.update({
             "direction": dir_label,
             "design_speed": design_speed,
@@ -1165,29 +1198,50 @@ class VentilationVolumeTab(ttk.Frame):
         })
         return stats
 
+    def _update_traffic_labels(self):
+        """Update traffic panel labels when direction names change."""
+        dir1_name = self.dir1Name.get()
+        dir2_name = self.dir2Name.get()
+        
+        # Update traffic card labels if they exist
+        if hasattr(self, 'traffic_card1_label'):
+            self.traffic_card1_label.config(text=f"Estimated Traffic Volume - {dir1_name} → {dir2_name}")
+        if hasattr(self, 'traffic_card2_label'):
+            self.traffic_card2_label.config(text=f"Estimated Traffic Volume - {dir2_name} → {dir1_name}")
+        
+        # Update logic direction labels
+        if hasattr(self, 'traffic_logic_masan_jinju'):
+            self.traffic_logic_masan_jinju.direction = f"{dir1_name} → {dir2_name}"
+        if hasattr(self, 'traffic_logic_jinju_masan'):
+            self.traffic_logic_jinju_masan.direction = f"{dir2_name} → {dir1_name}"
+
     def _add_traffic_estimation_panel(self, parent):
         """Add traffic estimation module panels for both directions."""
         from traffic_estimation_module import TrafficEstimationLogic
 
+        # Get dynamic direction names
+        dir1_name = self.dir1Name.get()
+        dir2_name = self.dir2Name.get()
+        
         # Initialize traffic estimation logic for both directions
-        self.traffic_logic_masan_jinju = TrafficEstimationLogic(direction="Masan → Jinju")
-        self.traffic_logic_jinju_masan = TrafficEstimationLogic(direction="Jinju → Masan")
+        self.traffic_logic_masan_jinju = TrafficEstimationLogic(direction=f"{dir1_name} → {dir2_name}")
+        self.traffic_logic_jinju_masan = TrafficEstimationLogic(direction=f"{dir2_name} → {dir1_name}")
         self.traffic_rows_masan_jinju = []
         self.traffic_rows_jinju_masan = []
 
-        # Create Masan → Jinju card
+        # Create Direction 1 card
         self._create_direction_traffic_card(
             parent, 
-            "Masan → Jinju", 
+            f"{dir1_name} → {dir2_name}", 
             "masan_jinju",
             self.traffic_logic_masan_jinju,
             self.traffic_rows_masan_jinju
         )
 
-        # Create Jinju → Masan card
+        # Create Direction 2 card
         self._create_direction_traffic_card(
             parent, 
-            "Jinju → Masan", 
+            f"{dir2_name} → {dir1_name}", 
             "jinju_masan",
             self.traffic_logic_jinju_masan,
             self.traffic_rows_jinju_masan
@@ -1202,7 +1256,14 @@ class VentilationVolumeTab(ttk.Frame):
         # Header
         header = ttk.Frame(traffic_card)
         header.pack(fill="x", pady=(0, 10))
-        ttk.Label(header, text=f"Estimated Traffic Volume - {direction_title}", font=("Arial", 14, "bold")).pack(side="left")
+        header_label = ttk.Label(header, text=f"Estimated Traffic Volume - {direction_title}", font=("Arial", 14, "bold"))
+        header_label.pack(side="left")
+        
+        # Store reference to label for updates
+        if direction_key == "masan_jinju":
+            self.traffic_card1_label = header_label
+        else:
+            self.traffic_card2_label = header_label
 
         # Input frame for AADT values
         input_frame = ttk.LabelFrame(traffic_card, text="AADT Input (Annual Average Daily Traffic)", padding="10 10 10 10")

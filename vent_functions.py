@@ -168,7 +168,7 @@ def compute_Kj(Vr: float) -> float:
 
 def compute_common_factor(inp: TunnelVentInputs) -> float:
     """공통계수 (1+ξ+λ*Lr/Dr) * ρ / 2"""
-    return (1 + inp.xi + (inp.lamb * inp.Lr / inp.Dr)) * inp.rho / 2.0 
+    return (1 + inp.xi + inp.lamb * inp.Lr / inp.Dr) * inp.rho / 2.0 
 
 
 def compute_Pr(inp: TunnelVentInputs, Vr: float) -> float:
