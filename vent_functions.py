@@ -1,5 +1,6 @@
 # vent_functions.py
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+from typing import List, Dict
 import math
 
 # ---- 1. Data models ----
@@ -66,6 +67,18 @@ Vt_MAP = {
 # Allowed speeds for traffic flow calculation
 SPEED_OPTIONS_KMH = (10, 20, 30, 40, 50, 60, 70, 80)
 
+# K_lim-1 values per speed (from traffic density analysis)
+K_LIM1_BY_SPEED: Dict[int, float] = {
+    10: 0.009,
+    20: 0.007,
+    30: 0.007,
+    40: 0.007,
+    50: 0.005,
+    60: 0.005,
+    70: 0.005,
+    80: 0.005,
+}
+
 
 # ---- 3. Traffic flow calculation functions ----
 
@@ -108,6 +121,67 @@ def compute_traffic_density(Imax: float, speed_kmh: float, road_type: int) -> fl
         return 0.0
     k = flow / V
     return round(k, 3)  # 3 decimal places
+
+
+@dataclass
+class TrafficDensityRow:
+    """Traffic density table row for hourly traffic volume calculation."""
+    speed_kmh: float                 # 속도 V [km/h]
+    flow_pcu_per_hr_lane: int        # Q [PCU/hr·lane]
+    density_pcu_per_km_lane: float   # k [PCU/km·lane]
+    k_lim1: float                    # K_lim-1 at this speed
+    density_to_limit_ratio: float    # k / K_lim1 (dimensionless)
+
+
+def build_traffic_density_table(
+    Imax: float,
+    road_type: int,
+    speeds_kmh: List[float] = None
+) -> List[TrafficDensityRow]:
+    """
+    Build traffic density table for hourly traffic volume (n) calculation.
+    
+    This table computes traffic flow, density, and compares with K_lim-1 
+    for each speed to analyze traffic conditions.
+    
+    Parameters
+    ----------
+    Imax : float
+        최대교통량 Imax [PCU/hr·lane].
+    road_type : int
+        1 → 국도/고속도로, 2 → 도심지.
+    speeds_kmh : list of float, optional
+        Speeds to use. If None, default to SPEED_OPTIONS_KMH.
+    
+    Returns
+    -------
+    List[TrafficDensityRow]
+        One row per speed with flow, density, and limit analysis.
+    """
+    if speeds_kmh is None:
+        speeds_kmh = list(SPEED_OPTIONS_KMH)
+    
+    table: List[TrafficDensityRow] = []
+    
+    for V in speeds_kmh:
+        Q = compute_traffic_flow(Imax, V, road_type)
+        k = compute_traffic_density(Imax, V, road_type)
+        k_lim = K_LIM1_BY_SPEED.get(int(V), 0.0)
+        
+        ratio = 0.0
+        if k_lim > 0:
+            ratio = round(k / k_lim, 3)
+        
+        row = TrafficDensityRow(
+            speed_kmh=V,
+            flow_pcu_per_hr_lane=Q,
+            density_pcu_per_km_lane=k,
+            k_lim1=k_lim,
+            density_to_limit_ratio=ratio,
+        )
+        table.append(row)
+    
+    return table
 
 
 # ---- 4. Small functions for each quantity ----

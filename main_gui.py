@@ -940,6 +940,10 @@ class VentilationVolumeTab(ttk.Frame):
         # Total length by direction (m)
         self.totalLengthMasanToJinju_m = tk.DoubleVar(value=0.0)
         self.totalLengthJinjuToMasan_m = tk.DoubleVar(value=0.0)
+        
+        # Road type for traffic flow calculation (1=National/Expressway, 2=Downtown)
+        self.roadTypeMasanToJinju = tk.StringVar(value="1 - National/Expressway (K=150)")
+        self.roadTypeJinjuToMasan = tk.StringVar(value="1 - National/Expressway (K=150)")
 
         # Example data containers
         self.statsMasanToJinju = {"length_km": 0.0, "max_gradient": 0.0, "lanes": 1, "cap_per_lane": 0, "total_capacity": 0}
@@ -1205,9 +1209,9 @@ class VentilationVolumeTab(ttk.Frame):
         
         # Update traffic card labels if they exist
         if hasattr(self, 'traffic_card1_label'):
-            self.traffic_card1_label.config(text=f"Estimated Traffic Volume - {dir1_name} → {dir2_name}")
+            self.traffic_card1_label.config(text=f"{dir1_name} → {dir2_name}")
         if hasattr(self, 'traffic_card2_label'):
-            self.traffic_card2_label.config(text=f"Estimated Traffic Volume - {dir2_name} → {dir1_name}")
+            self.traffic_card2_label.config(text=f"{dir2_name} → {dir1_name}")
         
         # Update logic direction labels
         if hasattr(self, 'traffic_logic_masan_jinju'):
@@ -1256,8 +1260,13 @@ class VentilationVolumeTab(ttk.Frame):
         # Header
         header = ttk.Frame(traffic_card)
         header.pack(fill="x", pady=(0, 10))
-        header_label = ttk.Label(header, text=f"Estimated Traffic Volume - {direction_title}", font=("Arial", 14, "bold"))
-        header_label.pack(side="left")
+        
+        # Main title
+        ttk.Label(header, text="Estimated Traffic Volume", font=("Arial", 14, "bold")).pack(anchor="w")
+        
+        # Direction label (editable via parent variables)
+        header_label = ttk.Label(header, text=f"{direction_title}", font=("Arial", 12))
+        header_label.pack(anchor="w", pady=(2, 0))
         
         # Store reference to label for updates
         if direction_key == "masan_jinju":
@@ -1314,6 +1323,58 @@ class VentilationVolumeTab(ttk.Frame):
         ttk.Button(button_frame, text="Export PDF", command=lambda: self._export_traffic_pdf(direction_key)).pack(side="left", padx=5)
         ttk.Button(button_frame, text="Clear All", command=lambda: self._clear_traffic(direction_key)).pack(side="left", padx=5)
 
+        # Traffic Density Table (collapsible)
+        density_frame = ttk.Frame(traffic_card)
+        density_frame.pack(fill="x", pady=5)
+        
+        # Control row with toggle button and road type selector
+        density_control_frame = ttk.Frame(density_frame)
+        density_control_frame.pack(fill="x", padx=5, pady=2)
+        
+        # Toggle button for density table
+        density_visible = tk.BooleanVar(value=False)
+        toggle_btn = ttk.Button(
+            density_control_frame, 
+            text="▶ Show Traffic Density Table",
+            command=lambda: self._toggle_density_table(direction_key, density_visible, toggle_btn, density_table_frame)
+        )
+        toggle_btn.pack(side="left", padx=(0, 10))
+        
+        # Road Type selector next to toggle button
+        ttk.Label(density_control_frame, text="Road Type:").pack(side="left", padx=(0, 5))
+        road_type_var = self.roadTypeMasanToJinju if direction_key == "masan_jinju" else self.roadTypeJinjuToMasan
+        road_type_combo = ttk.Combobox(
+            density_control_frame,
+            textvariable=road_type_var,
+            values=["1 - National/Expressway (K=150)", "2 - Downtown (K=165)"],
+            state="readonly",
+            width=25,
+        )
+        road_type_combo.pack(side="left")
+        
+        # Trace road type changes to auto-update table if visible
+        def on_road_type_change(*args):
+            if density_visible.get():
+                self._populate_density_table(direction_key)
+        road_type_var.trace_add("write", on_road_type_change)
+        
+        # Collapsible density table frame
+        density_table_frame = ttk.Frame(density_frame)
+        # Don't pack initially (hidden by default)
+        
+        # Create table with headers
+        headers = ["Speed\n(km/h)", "Flow Q\n(PCU/hr·lane)", "Density k\n(PCU/km·lane)", "K_lim-1", "k/K_lim-1"]
+        for col, header in enumerate(headers):
+            ttk.Label(density_table_frame, text=header, font=("Arial", 9, "bold"), borderwidth=1, relief="solid", padding=5).grid(row=0, column=col, sticky="nsew")
+        
+        # Store reference to populate later
+        if direction_key == "masan_jinju":
+            self.density_table_frame_masan_jinju = density_table_frame
+            self.density_visible_masan_jinju = density_visible
+        else:
+            self.density_table_frame_jinju_masan = density_table_frame
+            self.density_visible_jinju_masan = density_visible
+
         # Results frame
         results_frame = ttk.LabelFrame(traffic_card, text="Traffic Estimation Results", padding="10 10 10 10")
         results_frame.pack(fill="both", expand=True, pady=5)
@@ -1331,6 +1392,67 @@ class VentilationVolumeTab(ttk.Frame):
             self.traffic_result_text_masan_jinju = traffic_result_text
         else:
             self.traffic_result_text_jinju_masan = traffic_result_text
+
+    def _toggle_density_table(self, direction_key, visible_var, toggle_btn, table_frame):
+        """Toggle visibility of traffic density table."""
+        is_visible = visible_var.get()
+        
+        if is_visible:
+            # Hide table
+            table_frame.pack_forget()
+            toggle_btn.config(text="▶ Show Traffic Density Table")
+            visible_var.set(False)
+        else:
+            # Show and populate table
+            table_frame.pack(fill="x", pady=5)
+            toggle_btn.config(text="▼ Hide Traffic Density Table")
+            visible_var.set(True)
+            self._populate_density_table(direction_key)
+
+    def _populate_density_table(self, direction_key):
+        """Populate the traffic density table with current parameters."""
+        from vent_functions import build_traffic_density_table
+        
+        # Get table frame
+        if direction_key == "masan_jinju":
+            table_frame = self.density_table_frame_masan_jinju
+            design_speed = int(self.designSpeedMasanToJinju.get())
+        else:
+            table_frame = self.density_table_frame_jinju_masan
+            design_speed = int(self.designSpeedJinjuToMasan.get())
+        
+        # Get current parameters from volume summary
+        volume_summary = self.get_volume_summary(direction="MasanToJinju" if direction_key == "masan_jinju" else "JinjuToMasan")
+        Imax = volume_summary.get("cap_per_lane", 2000)
+        
+        # Get road_type from user selection (extract integer from string like "1 - National/...")
+        if direction_key == "masan_jinju":
+            road_type_str = str(self.roadTypeMasanToJinju.get())
+        else:
+            road_type_str = str(self.roadTypeJinjuToMasan.get())
+        
+        # Parse the integer from the string (handle both "1" and "1 - National/...")
+        try:
+            road_type = int(road_type_str.split()[0]) if ' ' in road_type_str else int(road_type_str)
+        except (ValueError, AttributeError):
+            road_type = 1  # Default to National/Expressway
+        
+        # Build density table
+        density_rows = build_traffic_density_table(Imax, road_type)
+        
+        # Clear existing data rows (keep header row 0)
+        for widget in table_frame.grid_slaves():
+            row = widget.grid_info().get('row', 0)
+            if row > 0:
+                widget.destroy()
+        
+        # Populate data rows
+        for idx, row_data in enumerate(density_rows, start=1):
+            ttk.Label(table_frame, text=f"{row_data.speed_kmh:.0f}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=0, sticky="nsew")
+            ttk.Label(table_frame, text=f"{row_data.flow_pcu_per_hr_lane}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=1, sticky="nsew")
+            ttk.Label(table_frame, text=f"{row_data.density_pcu_per_km_lane:.3f}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=2, sticky="nsew")
+            ttk.Label(table_frame, text=f"{row_data.k_lim1:.3f}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=3, sticky="nsew")
+            ttk.Label(table_frame, text=f"{row_data.density_to_limit_ratio:.3f}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=4, sticky="nsew")
 
     def _add_traffic_row(self, direction_key):
         """Add a new row for traffic input."""
