@@ -38,9 +38,8 @@ def parse_csv(text: str) -> List[TrafficRow]:
     """
     Parse CSV/TSV text into list of TrafficRow objects.
 
-    Expected columns:
-      Year, Gasoline, Diesel, BusSmall, BusLarge, TruckSmall,
-      TruckMedium, TruckLarge, Special
+    Expected header format (must match GUI):
+    Year, Passenger Vehicles, Bus Small, Bus Large, Truck Small, Truck Medium, Truck Large, Truck Special
     """
     # Normalize newlines, split by lines
     lines = text.strip().splitlines()
@@ -48,30 +47,38 @@ def parse_csv(text: str) -> List[TrafficRow]:
         raise ValueError("File must have at least a header row and one data row")
 
     data: List[TrafficRow] = []
+    
     # Skip header row (index 0)
     for i in range(1, len(lines)):
         # Split by comma or tab
-        parts = [p for p in csv.reader([lines[i]], delimiter=",", skipinitialspace=True)][0]
+        parts = list(csv.reader([lines[i]], delimiter=",", skipinitialspace=True))[0]
         # If there are tabs, split manually
-        if len(parts) < 9:
-            parts = lines[i].split("\t")
+        if len(parts) < 8:
+            parts = [p.strip() for p in lines[i].split("\t")]
 
-        if len(parts) < 9:
-            # Skip incomplete rows
+        # Skip incomplete rows
+        if len(parts) < 8:
             continue
 
-        row = TrafficRow(
-            year=int(parts[0] or 0),
-            passengerGasoline=float(parts[1] or 0),
-            passengerDiesel=float(parts[2] or 0),
-            busSmall=float(parts[3] or 0),
-            busLarge=float(parts[4] or 0),
-            truckSmall=float(parts[5] or 0),
-            truckMedium=float(parts[6] or 0),
-            truckLarge=float(parts[7] or 0),
-            truckSpecial=float(parts[8] or 0),
-        )
-        data.append(row)
+        try:
+            # Format: Year, Passenger Vehicles, Bus Small, Bus Large, Truck Small, Truck Medium, Truck Large, Truck Special
+            passenger_total = float(parts[1] or 0)
+            # Split passenger vehicles 60% gasoline, 40% diesel
+            row = TrafficRow(
+                year=int(parts[0] or 0),
+                passengerGasoline=passenger_total * 0.6,
+                passengerDiesel=passenger_total * 0.4,
+                busSmall=float(parts[2] or 0),
+                busLarge=float(parts[3] or 0),
+                truckSmall=float(parts[4] or 0),
+                truckMedium=float(parts[5] or 0),
+                truckLarge=float(parts[6] or 0),
+                truckSpecial=float(parts[7] or 0),
+            )
+            data.append(row)
+        except (ValueError, IndexError):
+            # Skip rows with invalid data
+            continue
 
     return data
 

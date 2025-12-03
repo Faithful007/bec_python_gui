@@ -52,7 +52,7 @@ JET_AREA_MAP = {
 }
 
 # Un values corresponding to V_kmh
-UN_MAP = {
+Vt_MAP = {
     10: 2.78,
     20: 5.56,
     30: 8.33,
@@ -112,32 +112,12 @@ def compute_traffic_density(Imax: float, speed_kmh: float, road_type: int) -> fl
 
 # ---- 4. Small functions for each quantity ----
 
-def compute_Un(V_kmh: float) -> float:
-    """자연풍속 Un from V_kmh lookup table with interpolation"""
-    if V_kmh in UN_MAP:
-        return UN_MAP[V_kmh]
-    
-    # Linear interpolation for values between table entries
-    sorted_keys = sorted(UN_MAP.keys())
-    if V_kmh < sorted_keys[0]:
-        return UN_MAP[sorted_keys[0]]
-    if V_kmh > sorted_keys[-1]:
-        return UN_MAP[sorted_keys[-1]]
-    
-    # Find bracketing values
-    for i in range(len(sorted_keys) - 1):
-        if sorted_keys[i] <= V_kmh <= sorted_keys[i + 1]:
-            x1, x2 = sorted_keys[i], sorted_keys[i + 1]
-            y1, y2 = UN_MAP[x1], UN_MAP[x2]
-            # Linear interpolation
-            return round(y1 + (y2 - y1) * (V_kmh - x1) / (x2 - x1), 4)
-    
-    return UN_MAP[sorted_keys[0]]  # fallback
+def compute_Un(_V_kmh: float) -> float:
+    """자연풍속 Un is treated as a constant for Jet Fan calc."""
+    return 2.5
 
 
-def compute_Vt(inp: TunnelVentInputs) -> float:
-    """주행속도(m/s) Vt = ROUND(V_kmh/3.6, 2)"""
-    return round(inp.V_kmh / 3.6, 2)
+# Removed compute_Vt; Driving speed (m/s) Vt is taken from Vt_MAP based on V_kmh
 
 
 def compute_Vr(inp: TunnelVentInputs) -> float:
@@ -188,11 +168,11 @@ def compute_Kj(Vr: float) -> float:
 
 def compute_common_factor(inp: TunnelVentInputs) -> float:
     """공통계수 (1+ξ+λ*Lr/Dr) * ρ / 2"""
-    return (1 + inp.xi + inp.lamb * (inp.Lr / inp.Dr)) * inp.rho / 2.0 
+    return (1 + inp.xi + (inp.lamb * inp.Lr / inp.Dr)) * inp.rho / 2.0 
 
 
 def compute_Pr(inp: TunnelVentInputs, Vr: float) -> float:
-    """ΔPr = common_factor"""
+    """ΔPr = round(common_factor * Vr^2, 4)"""
     cf = compute_common_factor(inp)
     return round(cf * (Vr ** 2), 4)
 
@@ -245,7 +225,12 @@ def compute_Z_applied(Z_raw: float) -> int:
 # ---- 4. Helper that runs everything ----
 
 def compute_all(inp: TunnelVentInputs) -> TunnelVentResults:
-    Vt = compute_Vt(inp)
+    # Driving speed (m/s) Vt from map keyed by V_kmh
+    try:
+        key = int(inp.V_kmh)
+    except Exception:
+        key = int(round(inp.V_kmh))
+    Vt = Vt_MAP.get(key, Vt_MAP.get(10))
     Vr = compute_Vr(inp)
     Un = compute_Un(inp.V_kmh)
     Aj = compute_Aj(inp)
