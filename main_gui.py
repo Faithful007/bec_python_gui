@@ -1363,7 +1363,7 @@ class VentilationVolumeTab(ttk.Frame):
         # Don't pack initially (hidden by default)
         
         # Create table with headers
-        headers = ["Speed\n(km/h)", "Flow Q\n(PCU/hr·lane)", "Density k\n(PCU/km·lane)", "K_lim-1", "k/K_lim-1"]
+        headers = ["Speed\n(km/h)", "Flow Q\n(PCU/hr·lane)", "K_lim-1"]
         for col, header in enumerate(headers):
             ttk.Label(density_table_frame, text=header, font=("Arial", 9, "bold"), borderwidth=1, relief="solid", padding=5).grid(row=0, column=col, sticky="nsew")
         
@@ -1379,12 +1379,29 @@ class VentilationVolumeTab(ttk.Frame):
         results_frame = ttk.LabelFrame(traffic_card, text="Traffic Estimation Results", padding="10 10 10 10")
         results_frame.pack(fill="both", expand=True, pady=5)
 
-        # Results text widget
+        # Results text widget with scroll only when container is full
         result_scroll = ttk.Scrollbar(results_frame)
         result_scroll.pack(side="right", fill="y")
 
-        traffic_result_text = tk.Text(results_frame, wrap="word", height=10, yscrollcommand=result_scroll.set, font=("Courier New", 9))
+        traffic_result_text = tk.Text(results_frame, wrap="word", height=10, font=("Courier New", 9))
         traffic_result_text.pack(side="left", fill="both", expand=True)
+        
+        # Custom scroll command that disables scrollbar when content fits
+        def custom_yscrollcommand(*args):
+            try:
+                result_scroll.set(*args)
+                # Disable scrollbar buttons if all content is visible (container not full)
+                if len(args) >= 2 and args[0] == 0.0 and args[1] == 1.0:
+                    # Content fits - disable scrollbar
+                    result_scroll.pack_forget()
+                else:
+                    # Content exceeds - show scrollbar
+                    if not result_scroll.winfo_ismapped():
+                        result_scroll.pack(side="right", fill="y")
+            except:
+                pass
+        
+        traffic_result_text.config(yscrollcommand=custom_yscrollcommand)
         result_scroll.config(command=traffic_result_text.yview)
 
         # Store text widget reference
@@ -1450,9 +1467,7 @@ class VentilationVolumeTab(ttk.Frame):
         for idx, row_data in enumerate(density_rows, start=1):
             ttk.Label(table_frame, text=f"{row_data.speed_kmh:.0f}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=0, sticky="nsew")
             ttk.Label(table_frame, text=f"{row_data.flow_pcu_per_hr_lane}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=1, sticky="nsew")
-            ttk.Label(table_frame, text=f"{row_data.density_pcu_per_km_lane:.3f}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=2, sticky="nsew")
-            ttk.Label(table_frame, text=f"{row_data.k_lim1:.3f}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=3, sticky="nsew")
-            ttk.Label(table_frame, text=f"{row_data.density_to_limit_ratio:.3f}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=4, sticky="nsew")
+            ttk.Label(table_frame, text=f"{row_data.k_lim1:.3f}", borderwidth=1, relief="solid", padding=5).grid(row=idx, column=2, sticky="nsew")
 
     def _add_traffic_row(self, direction_key):
         """Add a new row for traffic input."""
@@ -1759,6 +1774,32 @@ class VentilationVolumeTab(ttk.Frame):
             res = entry.result
             inp = entry.inputs
 
+            # Determine road type for PCU/car mapping
+            if direction_key == "masan_jinju":
+                road_type_str = str(self.roadTypeMasanToJinju.get()) if hasattr(self, "roadTypeMasanToJinju") else "1"
+            else:
+                road_type_str = str(self.roadTypeJinjuToMasan.get()) if hasattr(self, "roadTypeJinjuToMasan") else "1"
+            try:
+                road_type_val = int(road_type_str.split()[0])
+            except (ValueError, AttributeError):
+                road_type_val = 1
+
+            # PCU/car mapping by road type
+            pcu_per_car = {
+                "passenger": 1.0,
+                "bus_small": 1.0,
+                "bus_large": 1.5,
+                "truck_small": 1.0,
+                "truck_medium": 1.5,
+                "truck_large": 1.5,
+                "truck_special": 2.0 if road_type_val == 1 else 1.9,
+            }
+
+            # Aggregate passenger mix percent (gasoline + diesel)
+            passenger_mix = (
+                res.mix_percents.get("passengerGasoline", 0) + res.mix_percents.get("passengerDiesel", 0)
+            )
+
             text_widget.insert("end", f"Year: {entry.year}\n")
             text_widget.insert("end", f"Direction: {entry.direction}\n")
             text_widget.insert("end", "-"*60 + "\n")
@@ -1777,6 +1818,92 @@ class VentilationVolumeTab(ttk.Frame):
             for key, val in res.mix_percents.items():
                 text_widget.insert("end", f"    {key}: {val:.2f}%\n")
             text_widget.insert("end", "\n")
+
+            # Table: Mix Percentages and PCU/car
+            text_widget.insert("end", "Table: Mix Percentages and Correction Factors \n\n")
+            headers = [
+                "YEAR",
+                "PASSENGER VEHICLE",
+                "BUS SMALL",
+                "BUS LARGE",
+                "TRUCK SMALL",
+                "TRUCK MEDIUM",
+                "TRUCK LARGE",
+                "TRUCK SPECIAL",
+            ]
+            col_widths = [6, 20, 12, 12, 12, 12, 12, 14]
+
+            def format_row(values):
+                return " ".join(str(val).ljust(width) for val, width in zip(values, col_widths))
+
+            text_widget.insert("end", format_row(headers) + "\n")
+            text_widget.insert("end", format_row(["-" * (w - 1) for w in col_widths]) + "\n")
+
+            # Mix percentages row
+            mix_row = [
+                f"{entry.year}",
+                f"{passenger_mix:.2f}%",
+                f"{res.mix_percents.get('busSmall', 0):.2f}%",
+                f"{res.mix_percents.get('busLarge', 0):.2f}%",
+                f"{res.mix_percents.get('truckSmall', 0):.2f}%",
+                f"{res.mix_percents.get('truckMedium', 0):.2f}%",
+                f"{res.mix_percents.get('truckLarge', 0):.2f}%",
+                f"{res.mix_percents.get('truckSpecial', 0):.2f}%",
+            ]
+            text_widget.insert("end", format_row(mix_row) + "\n")
+
+            # PCU/car row
+            pcu_row = [
+                "PCU/car",
+                f"{pcu_per_car['passenger']:.1f}",
+                f"{pcu_per_car['bus_small']:.1f}",
+                f"{pcu_per_car['bus_large']:.1f}",
+                f"{pcu_per_car['truck_small']:.1f}",
+                f"{pcu_per_car['truck_medium']:.1f}",
+                f"{pcu_per_car['truck_large']:.1f}",
+                f"{pcu_per_car['truck_special']:.1f}",
+            ]
+            text_widget.insert("end", format_row(pcu_row) + "\n")
+
+            # Mix * PCU / 100 row (individual contributions)
+            mix_pcu_row_values = {
+                "passenger": passenger_mix,
+                "bus_small": res.mix_percents.get('busSmall', 0),
+                "bus_large": res.mix_percents.get('busLarge', 0),
+                "truck_small": res.mix_percents.get('truckSmall', 0),
+                "truck_medium": res.mix_percents.get('truckMedium', 0),
+                "truck_large": res.mix_percents.get('truckLarge', 0),
+                "truck_special": res.mix_percents.get('truckSpecial', 0),
+            }
+            mix_pcu_row = [
+                "Mix*PCU/100",
+                f"{mix_pcu_row_values['passenger'] * pcu_per_car['passenger'] / 100:.4f}",
+                f"{mix_pcu_row_values['bus_small'] * pcu_per_car['bus_small'] / 100:.4f}",
+                f"{mix_pcu_row_values['bus_large'] * pcu_per_car['bus_large'] / 100:.4f}",
+                f"{mix_pcu_row_values['truck_small'] * pcu_per_car['truck_small'] / 100:.4f}",
+                f"{mix_pcu_row_values['truck_medium'] * pcu_per_car['truck_medium'] / 100:.4f}",
+                f"{mix_pcu_row_values['truck_large'] * pcu_per_car['truck_large'] / 100:.4f}",
+                f"{mix_pcu_row_values['truck_special'] * pcu_per_car['truck_special'] / 100:.4f}",
+            ]
+            text_widget.insert("end", format_row(mix_pcu_row) + "\n")
+
+            # Weighted PCU(%)/Number of Units (%)
+            pcu_weighted = (
+                passenger_mix * pcu_per_car['passenger']
+                + res.mix_percents.get('busSmall', 0) * pcu_per_car['bus_small']
+                + res.mix_percents.get('busLarge', 0) * pcu_per_car['bus_large']
+                + res.mix_percents.get('truckSmall', 0) * pcu_per_car['truck_small']
+                + res.mix_percents.get('truckMedium', 0) * pcu_per_car['truck_medium']
+                + res.mix_percents.get('truckLarge', 0) * pcu_per_car['truck_large']
+                + res.mix_percents.get('truckSpecial', 0) * pcu_per_car['truck_special']
+            ) / 100.0
+            text_widget.insert(
+                "end",
+                f"PCU(%)/Units (%): {pcu_weighted:.4f}\n\n",
+            )
+
+        # Force scroll to the top so first information is visible
+        text_widget.yview_moveto(0.0)
 
 
 class VentilationVolumeWindow(tk.Toplevel):
