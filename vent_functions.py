@@ -23,6 +23,7 @@ class TunnelVentInputs:
     jet_diameter: int     # 13. 젯트팬 직경 Φ (mm, e.g. 1030)
     high_efficiency: bool # 14. 고효율형 여부 (True→30 m/s, False→34 m/s)
     eta: float            # 15. 분류효율 η
+    vehicle_hr_lane: float = 0.0  # Optional override for vehicles/hr per lane from volume tab
 
 @dataclass
 class TunnelVentResults:
@@ -31,7 +32,7 @@ class TunnelVentResults:
     Un: float
     Aj: float
     Vj: float
-    n: int
+    n: float
     Kj: float
     Pr: float
     Pm: float
@@ -211,24 +212,26 @@ def compute_Vj(inp: TunnelVentInputs) -> float:
     return 30.0 if inp.high_efficiency else 34.0
 
 
-def compute_n(inp: TunnelVentInputs, Vt: float) -> int:
+def compute_n(inp: TunnelVentInputs, Vt: float) -> float:
     """
-    터널내 자동차 수 n = ROUND(Q_total_per_sec × 통과시간 + 0.4, 0)
-    Consistent units using Vt in m/s:
-      - Q (from flow model) is in [PCU/hr·lane]
-      - Convert to per-second and multiply by travel time Lr/Vt
-      n = ROUND((Q*lanes/3600) × (Lr/Vt) + 0.4)
-        = ROUND(Q * lanes * Lr / (3600 * Vt) + 0.4)
-    """
-    # Calculate traffic flow Q [PCU/hr·lane]
-    Q = compute_traffic_flow(inp.Imax, inp.V_kmh, inp.road_type)
+    터널내 자동차 수 n
+    Preferred formula (if vehicle/hr per lane provided from volume tab):
+      n = ROUND((Vehicle/hr, lane × Lr / (3600 × Vt) + 0.4), 0)
 
-    # Guard for zero/negative speeds
+    Fallback (when vehicle/hr per lane is not provided):
+      use flow Q [PCU/hr·lane] as before.
+    """
     if Vt <= 0:
-        return 0
+        return 0.0
 
-    n = Q * inp.lanes * inp.Lr / (3600.0 * Vt)
-    return round(n + 0.4)
+    if inp.vehicle_hr_lane and inp.vehicle_hr_lane > 0:
+        n_val = inp.vehicle_hr_lane * inp.Lr / (3600.0 * Vt)
+        return round(n_val + 0.4, 0)
+
+    # Fallback to legacy flow-based calculation
+    Q = compute_traffic_flow(inp.Imax, inp.V_kmh, inp.road_type)
+    n_val = Q * inp.lanes * inp.Lr / (3600.0 * Vt)
+    return round(n_val + 0.4, 0)
 
 
 def compute_Kj(Vr: float) -> float:
@@ -246,9 +249,9 @@ def compute_common_factor(inp: TunnelVentInputs) -> float:
 
 
 def compute_Pr(inp: TunnelVentInputs, Vr: float) -> float:
-    """ΔPr = round(common_factor * Vr^2, 4)"""
+    """ΔPr = common_factor * Vr^2, formatted to 4 decimals"""
     cf = compute_common_factor(inp)
-    return round(cf * (Vr ** 2), 4)
+    return float(f"{cf * (Vr ** 2):.4f}")
 
 
 def compute_Pm(inp: TunnelVentInputs, Un: float) -> float:

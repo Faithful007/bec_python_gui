@@ -1,6 +1,7 @@
 # main_gui.py
 
 import tkinter as tk
+import math
 from tkinter import ttk, messagebox, filedialog
 
 from vent_functions import (
@@ -267,6 +268,16 @@ class JetFanTab(ttk.Frame):
         high_eff_str = self.high_eff_var.get()
         high_eff_bool = high_eff_str.startswith("High")
 
+        vehicle_hr_lane = None
+        try:
+            if self.volume_tab:
+                vehicle_hr_lane = self.volume_tab.get_vehicle_hr_lane(
+                    direction="MasanToJinju",
+                    speed_kmh=float(self.v_kmh_var.get()),
+                )
+        except Exception:
+            vehicle_hr_lane = None
+
         return TunnelVentInputs(
             V_kmh=float(self.v_kmh_var.get()),
             Qtreq=float(self.qtreq_var.get()),
@@ -283,6 +294,7 @@ class JetFanTab(ttk.Frame):
             jet_diameter=int(self.jet_diameter_var.get()),
             high_efficiency=high_eff_bool,
             eta=float(self.eta_var.get()),
+            vehicle_hr_lane=float(vehicle_hr_lane) if vehicle_hr_lane is not None else 0.0,
         )
 
     def _on_vkmh_changed(self, event=None):
@@ -734,12 +746,14 @@ class TunnelGeometry(ttk.LabelFrame):
         # Separator
         ttk.Separator(self, orient="horizontal").grid(row=1, column=0, columnspan=4, sticky="ew", pady=(2, 6))
 
-        # Ar/Lp inputs
-        ttk.Label(self, text="Tunnel Cross-Section Area [Ar]:").grid(row=2, column=0, sticky="w", padx=4, pady=4)
-        ttk.Entry(self, textvariable=ar_var, width=10).grid(row=2, column=1, sticky="w", padx=4, pady=4)
+        # Computed average Ar/Lp (read-only)
+        ttk.Label(self, text="Average Tunnel Cross-Section Area [Ar] [m²]:").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        self.avg_ar_var = tk.DoubleVar(value=0.0)
+        ttk.Entry(self, textvariable=self.avg_ar_var, width=14, state="readonly").grid(row=2, column=1, sticky="w", padx=4, pady=4)
 
-        ttk.Label(self, text="Tunnel Perimeter [Lp]:").grid(row=3, column=0, sticky="w", padx=4, pady=4)
-        ttk.Entry(self, textvariable=lp_var, width=10).grid(row=3, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(self, text="Average Tunnel Perimeter [Lp] [m]:").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        self.avg_lp_var = tk.DoubleVar(value=0.0)
+        ttk.Entry(self, textvariable=self.avg_lp_var, width=14, state="readonly").grid(row=3, column=1, sticky="w", padx=4, pady=4)
 
         # Computed Dr = (4 * Ar) / Lp (read-only)
         self.dr_var = tk.DoubleVar(value=0.0)
@@ -752,8 +766,8 @@ class TunnelGeometry(ttk.LabelFrame):
             lp_var.trace_add("write", lambda *args: on_lp_change(lp_var.get()))
 
         # Always recompute Dr when Ar or Lp changes
-        ar_var.trace_add("write", lambda *args: self._recompute_dr(ar_var, lp_var))
-        lp_var.trace_add("write", lambda *args: self._recompute_dr(ar_var, lp_var))
+        ar_var.trace_add("write", lambda *args: self._recompute_dr_and_averages(ar_var, lp_var))
+        lp_var.trace_add("write", lambda *args: self._recompute_dr_and_averages(ar_var, lp_var))
 
         # Initial Dr compute
         self._recompute_dr(ar_var, lp_var)
@@ -775,6 +789,28 @@ class TunnelGeometry(ttk.LabelFrame):
         dr = (4.0 * ar / lp) if lp not in (0, 0.0) else 0.0
         self.dr_var.set(round(dr, 4))
 
+    def _recompute_dr_and_averages(self, ar_var, lp_var):
+        """Compute average Ar, Lp from segments (excluding zero/empty entries) and update Dr."""
+        # Compute averages from segments, excluding empty cells (value = 0.0)
+        if self.segments:
+            # Filter out zero values for Ar
+            ar_values = [float(seg.get("ar", 0.0) or 0.0) for seg in self.segments if float(seg.get("ar", 0.0) or 0.0) > 0]
+            avg_ar = sum(ar_values) / len(ar_values) if ar_values else 0.0
+            
+            # Filter out zero values for Lp
+            lp_values = [float(seg.get("lp", 0.0) or 0.0) for seg in self.segments if float(seg.get("lp", 0.0) or 0.0) > 0]
+            avg_lp = sum(lp_values) / len(lp_values) if lp_values else 0.0
+        else:
+            avg_ar = 0.0
+            avg_lp = 0.0
+        
+        self.avg_ar_var.set(round(avg_ar, 4))
+        self.avg_lp_var.set(round(avg_lp, 4))
+        
+        # Compute Dr using averages
+        dr = (4.0 * avg_ar / avg_lp) if avg_lp not in (0, 0.0) else 0.0
+        self.dr_var.set(round(dr, 4))
+
     def _build_segments_grid(self):
         # Clear previous grid
         for w in self.grid_frame.winfo_children():
@@ -783,11 +819,18 @@ class TunnelGeometry(ttk.LabelFrame):
         n = self._safe_int(self.count_var.get(), 1)
         n = max(1, min(50, n))
 
-        # Ensure segments storage size
+        # Ensure segments storage size and initialize new keys
         while len(self.segments) < n:
-            self.segments.append({"gradient": 0.0, "length": 0.0, "lanes": 1})
+            self.segments.append({"gradient": 0.0, "length": 0.0, "lanes": 1, "ar": 0.0, "lp": 0.0})
         while len(self.segments) > n:
             self.segments.pop()
+        
+        # Ensure segments storage has new keys
+        for seg in self.segments:
+            if "ar" not in seg:
+                seg["ar"] = 0.0
+            if "lp" not in seg:
+                seg["lp"] = 0.0
 
         header_style = {"padx": 6, "pady": 2}
         item_style = {"padx": 4, "pady": 2}
@@ -797,11 +840,13 @@ class TunnelGeometry(ttk.LabelFrame):
         for i in range(n):
             ttk.Label(self.grid_frame, text=f"Sec. {i+1}", font=("Arial", 10, "bold")).grid(row=0, column=i+1, sticky="w", **header_style)
 
-        # Rows: Gradient, Length, Lanes
+        # Rows: Gradient, Length, Lanes, Ar, Lp
         rows = [
             ("Tunnel gradient [%]", "gradient", tk.DoubleVar),
             ("Tunnel length [m]", "length", tk.DoubleVar),
             ("Number of lanes [N]", "lanes", tk.IntVar),
+            ("Tunnel Cross-Section Area [Ar] [m²]", "ar", tk.DoubleVar),
+            ("Tunnel Perimeter [Lp] [m]", "lp", tk.DoubleVar),
         ]
 
         # Keep strong refs to vars to prevent GC
@@ -838,6 +883,12 @@ class TunnelGeometry(ttk.LabelFrame):
         if callable(self.on_segments_change):
             try:
                 self.on_segments_change("segments", self.segments)
+            except Exception:
+                pass
+        # Recompute averages after any segment change, especially for Ar/Lp
+        if key in ("ar", "lp"):
+            try:
+                self._recompute_dr_and_averages(tk.DoubleVar(), tk.DoubleVar())
             except Exception:
                 pass
 
@@ -907,6 +958,8 @@ class VentilationVolumeTab(ttk.Frame):
     """Tab for Calculate Ventilation Volume functionality."""
     def __init__(self, parent):
         super().__init__(parent)
+        # Cache for Vehicle/hr, lane values keyed by direction and speed
+        self.vehicle_hr_lane_cache = {"masan_jinju": {}, "jinju_masan": {}}
         self._build_interface()
 
     def _build_interface(self):
@@ -1033,7 +1086,7 @@ class VentilationVolumeTab(ttk.Frame):
             width=6,
         ).pack(side="left")
         SegmentsTableTransposed(card1, "MasanToJinju", self.segmentsMasanToJinju, lambda *_: self._update_summary("MasanToJinju"), t).pack(fill="x", pady=4)
-        TunnelGeometry(
+        self.tunnelGeometryMasanToJinju = TunnelGeometry(
             card1,
             self.tunnelArMasanToJinju,
             self.tunnelLpMasanToJinju,
@@ -1043,7 +1096,8 @@ class VentilationVolumeTab(ttk.Frame):
             onArChangeMasan,
             onLpChangeMasan,
             t,
-        ).pack(fill="x", pady=4)
+        )
+        self.tunnelGeometryMasanToJinju.pack(fill="x", pady=4)
         self.summaryRowMasanToJinju = SummaryRow(card1, self.statsMasanToJinju, self.trafficMasanToJinju, t)
         self.summaryRowMasanToJinju.pack(fill="x", pady=4)
 
@@ -1089,7 +1143,7 @@ class VentilationVolumeTab(ttk.Frame):
             width=6,
         ).pack(side="left")
         SegmentsTableTransposed(card2, "JinjuToMasan", self.segmentsJinjuToMasan, lambda *_: self._update_summary("JinjuToMasan"), t).pack(fill="x", pady=4)
-        TunnelGeometry(
+        self.tunnelGeometryJinjuToMasan = TunnelGeometry(
             card2,
             self.tunnelArJinjuToMasan,
             self.tunnelLpJinjuToMasan,
@@ -1099,7 +1153,8 @@ class VentilationVolumeTab(ttk.Frame):
             onArChangeJinju,
             onLpChangeJinju,
             t,
-        ).pack(fill="x", pady=4)
+        )
+        self.tunnelGeometryJinjuToMasan.pack(fill="x", pady=4)
         self.summaryRowJinjuToMasan = SummaryRow(card2, self.statsJinjuToMasan, self.trafficJinjuToMasan, t)
         self.summaryRowJinjuToMasan.pack(fill="x", pady=4)
 
@@ -1171,15 +1226,30 @@ class VentilationVolumeTab(ttk.Frame):
 
     def get_params_for_jet(self, direction="MasanToJinju"):
         if direction == "MasanToJinju":
-            Ar = float(self.tunnelArMasanToJinju.get())
-            Lp = float(self.tunnelLpMasanToJinju.get())
+            # Use average Ar and Lp from segments
+            ar_avg = float(self.tunnelGeometryMasanToJinju.avg_ar_var.get()) if hasattr(self, 'tunnelGeometryMasanToJinju') else 0.0
+            lp_avg = float(self.tunnelGeometryMasanToJinju.avg_lp_var.get()) if hasattr(self, 'tunnelGeometryMasanToJinju') else 0.0
+            dr = float(self.tunnelGeometryMasanToJinju.dr_var.get()) if hasattr(self, 'tunnelGeometryMasanToJinju') else 0.0
             Lr_m = float(self.totalLengthMasanToJinju_m.get())
         else:
-            Ar = float(self.tunnelArJinjuToMasan.get())
-            Lp = float(self.tunnelLpJinjuToMasan.get())
+            # Use average Ar and Lp from segments
+            ar_avg = float(self.tunnelGeometryJinjuToMasan.avg_ar_var.get()) if hasattr(self, 'tunnelGeometryJinjuToMasan') else 0.0
+            lp_avg = float(self.tunnelGeometryJinjuToMasan.avg_lp_var.get()) if hasattr(self, 'tunnelGeometryJinjuToMasan') else 0.0
+            dr = float(self.tunnelGeometryJinjuToMasan.dr_var.get()) if hasattr(self, 'tunnelGeometryJinjuToMasan') else 0.0
             Lr_m = float(self.totalLengthJinjuToMasan_m.get())
-        Dr = (4.0 * Ar / Lp) if Lp not in (0, 0.0) else 0.0
-        return {"Ar": Ar, "Lp": Lp, "Lr_m": Lr_m, "Dr": Dr}
+        return {"Ar": ar_avg, "Lp": lp_avg, "Lr_m": Lr_m, "Dr": dr}
+
+    def get_vehicle_hr_lane(self, direction="MasanToJinju", speed_kmh=None):
+        """Return cached Vehicle/hr, lane for a given direction and speed."""
+        key = "masan_jinju" if direction == "MasanToJinju" else "jinju_masan"
+        cache = self.vehicle_hr_lane_cache.get(key, {})
+        if speed_kmh is None:
+            return None
+        try:
+            speed_int = int(round(float(speed_kmh)))
+            return cache.get(speed_int)
+        except Exception:
+            return None
 
     def get_volume_summary(self, direction="MasanToJinju"):
         if direction == "MasanToJinju":
@@ -1363,7 +1433,7 @@ class VentilationVolumeTab(ttk.Frame):
         # Don't pack initially (hidden by default)
         
         # Create table with headers
-        headers = ["Speed\n(km/h)", "Flow Q\n(PCU/hr·lane)", "K_lim-1"]
+        headers = ["Speed\n(km/h)", "Traffic Volume\n(PCU/km·lane)", "K_lim-1"]
         for col, header in enumerate(headers):
             ttk.Label(density_table_frame, text=header, font=("Arial", 9, "bold"), borderwidth=1, relief="solid", padding=5).grid(row=0, column=col, sticky="nsew")
         
@@ -1774,6 +1844,13 @@ class VentilationVolumeTab(ttk.Frame):
             res = entry.result
             inp = entry.inputs
 
+            # Helper for 4 significant figures
+            def fmt_sig2(val):
+                try:
+                    return f"{float(val):.4g}"
+                except Exception:
+                    return str(val)
+
             # Determine road type for PCU/car mapping
             if direction_key == "masan_jinju":
                 road_type_str = str(self.roadTypeMasanToJinju.get()) if hasattr(self, "roadTypeMasanToJinju") else "1"
@@ -1786,13 +1863,14 @@ class VentilationVolumeTab(ttk.Frame):
 
             # PCU/car mapping by road type
             pcu_per_car = {
-                "passenger": 1.0,
+                "gasoline": 1.0,
+                "diesel": 1.0,
                 "bus_small": 1.0,
                 "bus_large": 1.5,
                 "truck_small": 1.0,
                 "truck_medium": 1.5,
                 "truck_large": 1.5,
-                "truck_special": 2.0 if road_type_val == 1 else 1.9,
+                "truck_special": 2.0, #if road_type_val == 1 else 1.9,
             }
 
             # Aggregate passenger mix percent (gasoline + diesel)
@@ -1803,71 +1881,113 @@ class VentilationVolumeTab(ttk.Frame):
             text_widget.insert("end", f"Year: {entry.year}\n")
             text_widget.insert("end", f"Direction: {entry.direction}\n")
             text_widget.insert("end", "-"*60 + "\n")
-            text_widget.insert("end", f"  Passenger Vehicles: {inp.passenger_aadt:,.0f}\n")
-            text_widget.insert("end", f"    - Gasoline (60%): {res.counts.get('passengerGasoline', 0):,.0f}\n")
-            text_widget.insert("end", f"    - Diesel (40%):   {res.counts.get('passengerDiesel', 0):,.0f}\n")
-            text_widget.insert("end", f"  Bus Small:          {inp.bus_small:,.0f}\n")
-            text_widget.insert("end", f"  Bus Large:          {inp.bus_large:,.0f}\n")
-            text_widget.insert("end", f"  Truck Small:        {inp.truck_small:,.0f}\n")
-            text_widget.insert("end", f"  Truck Medium:       {inp.truck_medium:,.0f}\n")
-            text_widget.insert("end", f"  Truck Large:        {inp.truck_large:,.0f}\n")
-            text_widget.insert("end", f"  Truck Special:      {inp.truck_special:,.0f}\n")
-            text_widget.insert("end", f"\n  Total AADT:         {res.total_aadt:,.0f}\n")
-            text_widget.insert("end", f"  Heavy Vehicle Mix:  {res.heavy_vehicle_mix_pt:.2f}%\n")
-            text_widget.insert("end", "\n  Mix Percentages:\n")
-            for key, val in res.mix_percents.items():
-                text_widget.insert("end", f"    {key}: {val:.2f}%\n")
-            text_widget.insert("end", "\n")
-
-            # Table: Mix Percentages and PCU/car
-            text_widget.insert("end", "Table: Mix Percentages and Correction Factors \n\n")
-            headers = [
-                "YEAR",
-                "PASSENGER VEHICLE",
+            
+            # Calculate gasoline and diesel split
+            passenger_gasoline = inp.passenger_aadt * 0.60
+            passenger_diesel = inp.passenger_aadt * 0.40
+            
+            # Get mix percentages for gasoline and diesel
+            passenger_gasoline_mix = res.mix_percents.get("passengerGasoline", 0)
+            passenger_diesel_mix = res.mix_percents.get("passengerDiesel", 0)
+            
+            # Calculate total AADT for AADT row
+            total_aadt = int(passenger_gasoline) + int(passenger_diesel) + int(inp.bus_small) + int(inp.bus_large) + int(inp.truck_small) + int(inp.truck_medium) + int(inp.truck_large) + int(inp.truck_special)
+            
+            # Calculate total mix percentage (should be 100%)
+            total_mix_percent = passenger_gasoline_mix + passenger_diesel_mix + res.mix_percents.get('busSmall', 0) + res.mix_percents.get('busLarge', 0) + res.mix_percents.get('truckSmall', 0) + res.mix_percents.get('truckMedium', 0) + res.mix_percents.get('truckLarge', 0) + res.mix_percents.get('truckSpecial', 0)
+            total_mix_percent = min(100.0, total_mix_percent)
+            
+            # Table: Estimated Traffic Result(s)
+            text_widget.insert("end", f"\nTable: Estimated Traffic Result(s) ({entry.year})\n\n")
+            traffic_headers = [
+                "",
+                "GASOLINE",
+                "DIESEL",
                 "BUS SMALL",
                 "BUS LARGE",
                 "TRUCK SMALL",
                 "TRUCK MEDIUM",
                 "TRUCK LARGE",
                 "TRUCK SPECIAL",
+                "TOTAL",
+                "HEAVY VEH MIX RATE (%)",
             ]
-            col_widths = [6, 20, 12, 12, 12, 12, 12, 14]
-
-            def format_row(values):
-                return " ".join(str(val).ljust(width) for val, width in zip(values, col_widths))
-
-            text_widget.insert("end", format_row(headers) + "\n")
-            text_widget.insert("end", format_row(["-" * (w - 1) for w in col_widths]) + "\n")
-
+            traffic_col_widths = [12, 12, 12, 12, 12, 12, 12, 12, 14, 12, 18]
+            
+            def format_traffic_row(values):
+                return " ".join(str(val).ljust(width) for val, width in zip(values, traffic_col_widths))
+            
+            text_widget.insert("end", format_traffic_row(traffic_headers) + "\n")
+            text_widget.insert("end", format_traffic_row(["-" * (w - 1) for w in traffic_col_widths]) + "\n")
+            
+            # Traffic counts row
+            traffic_data_row = [
+                "AADT",
+                f"{int(passenger_gasoline):,}",
+                f"{int(passenger_diesel):,}",
+                f"{int(inp.bus_small):,}",
+                f"{int(inp.bus_large):,}",
+                f"{int(inp.truck_small):,}",
+                f"{int(inp.truck_medium):,}",
+                f"{int(inp.truck_large):,}",
+                f"{int(inp.truck_special):,}",
+                f"{total_aadt:,}",
+                f"{res.heavy_vehicle_mix_pt:.2f}%",
+            ]
+            text_widget.insert("end", format_traffic_row(traffic_data_row) + "\n")
+            
             # Mix percentages row
-            mix_row = [
-                f"{entry.year}",
-                f"{passenger_mix:.2f}%",
-                f"{res.mix_percents.get('busSmall', 0):.2f}%",
-                f"{res.mix_percents.get('busLarge', 0):.2f}%",
-                f"{res.mix_percents.get('truckSmall', 0):.2f}%",
-                f"{res.mix_percents.get('truckMedium', 0):.2f}%",
-                f"{res.mix_percents.get('truckLarge', 0):.2f}%",
-                f"{res.mix_percents.get('truckSpecial', 0):.2f}%",
+            mix_percent_row = [
+                "Mix Rate %",
+                f"{passenger_gasoline_mix:.2f}",
+                f"{passenger_diesel_mix:.2f}",
+                f"{res.mix_percents.get('busSmall', 0):.2f}",
+                f"{res.mix_percents.get('busLarge', 0):.2f}",
+                f"{res.mix_percents.get('truckSmall', 0):.2f}",
+                f"{res.mix_percents.get('truckMedium', 0):.2f}",
+                f"{res.mix_percents.get('truckLarge', 0):.2f}",
+                f"{res.mix_percents.get('truckSpecial', 0):.2f}",
+                f"{round(total_mix_percent,2):.2f}",
+                "",
             ]
-            text_widget.insert("end", format_row(mix_row) + "\n")
-
+            text_widget.insert("end", format_traffic_row(mix_percent_row) + "\n")
+            
             # PCU/car row
-            pcu_row = [
+            pcu_car_row = [
                 "PCU/car",
-                f"{pcu_per_car['passenger']:.1f}",
+                f"{pcu_per_car['gasoline']:.1f}",
+                f"{pcu_per_car['diesel']:.1f}",
                 f"{pcu_per_car['bus_small']:.1f}",
                 f"{pcu_per_car['bus_large']:.1f}",
                 f"{pcu_per_car['truck_small']:.1f}",
                 f"{pcu_per_car['truck_medium']:.1f}",
                 f"{pcu_per_car['truck_large']:.1f}",
                 f"{pcu_per_car['truck_special']:.1f}",
+                "",
+                "",
             ]
-            text_widget.insert("end", format_row(pcu_row) + "\n")
+            text_widget.insert("end", format_traffic_row(pcu_car_row) + "\n")
+            
+            # Mix*PCU/100 row
+            mix_pcu_100_row = [
+                "Mix*PCU",
+                f"{(passenger_gasoline_mix * pcu_per_car['gasoline']):.4g}",
+                f"{(passenger_diesel_mix * pcu_per_car['diesel'] / 100):.4g}",
+                f"{(res.mix_percents.get('busSmall', 0) * pcu_per_car['bus_small']):.4g}",
+                f"{(res.mix_percents.get('busLarge', 0) * pcu_per_car['bus_large'] ):.4g}",
+                f"{(res.mix_percents.get('truckSmall', 0) * pcu_per_car['truck_small'] ):.4g}",
+                f"{(res.mix_percents.get('truckMedium', 0) * pcu_per_car['truck_medium'] ):.4g}",
+                f"{(res.mix_percents.get('truckLarge', 0) * pcu_per_car['truck_large'] ):.4g}",
+                f"{(res.mix_percents.get('truckSpecial', 0) * pcu_per_car['truck_special'] ):.4g}",
+                "",
+                "",
+            ]
+            text_widget.insert("end", format_traffic_row(mix_pcu_100_row) + "\n\n")
 
-            # Mix * PCU / 100 row (individual contributions)
+            # Mix * PCU / 100 row (individual contributions) for PCU total calculation
             mix_pcu_row_values = {
-                "passenger": passenger_mix,
+                "gasoline": res.mix_percents.get('passengerGasoline', 0),
+                "diesel": res.mix_percents.get('passengerDiesel', 0),
                 "bus_small": res.mix_percents.get('busSmall', 0),
                 "bus_large": res.mix_percents.get('busLarge', 0),
                 "truck_small": res.mix_percents.get('truckSmall', 0),
@@ -1875,32 +1995,94 @@ class VentilationVolumeTab(ttk.Frame):
                 "truck_large": res.mix_percents.get('truckLarge', 0),
                 "truck_special": res.mix_percents.get('truckSpecial', 0),
             }
-            mix_pcu_row = [
-                "Mix*PCU/100",
-                f"{mix_pcu_row_values['passenger'] * pcu_per_car['passenger'] / 100:.4f}",
-                f"{mix_pcu_row_values['bus_small'] * pcu_per_car['bus_small'] / 100:.4f}",
-                f"{mix_pcu_row_values['bus_large'] * pcu_per_car['bus_large'] / 100:.4f}",
-                f"{mix_pcu_row_values['truck_small'] * pcu_per_car['truck_small'] / 100:.4f}",
-                f"{mix_pcu_row_values['truck_medium'] * pcu_per_car['truck_medium'] / 100:.4f}",
-                f"{mix_pcu_row_values['truck_large'] * pcu_per_car['truck_large'] / 100:.4f}",
-                f"{mix_pcu_row_values['truck_special'] * pcu_per_car['truck_special'] / 100:.4f}",
-            ]
-            text_widget.insert("end", format_row(mix_pcu_row) + "\n")
-
-            # Weighted PCU(%)/Number of Units (%)
-            pcu_weighted = (
-                passenger_mix * pcu_per_car['passenger']
-                + res.mix_percents.get('busSmall', 0) * pcu_per_car['bus_small']
-                + res.mix_percents.get('busLarge', 0) * pcu_per_car['bus_large']
-                + res.mix_percents.get('truckSmall', 0) * pcu_per_car['truck_small']
-                + res.mix_percents.get('truckMedium', 0) * pcu_per_car['truck_medium']
-                + res.mix_percents.get('truckLarge', 0) * pcu_per_car['truck_large']
-                + res.mix_percents.get('truckSpecial', 0) * pcu_per_car['truck_special']
-            ) / 100.0
-            text_widget.insert(
-                "end",
-                f"PCU(%)/Units (%): {pcu_weighted:.4f}\n\n",
+            # Calculate individual Mix*PCU/100 values with 4 significant figures
+            mix_pcu_values = {
+                'gasoline': float(fmt_sig2(mix_pcu_row_values['gasoline'] * pcu_per_car['gasoline'] / 100)),
+                'diesel': float(fmt_sig2(mix_pcu_row_values['diesel'] * pcu_per_car['diesel'] / 100)),
+                'bus_small': float(fmt_sig2(mix_pcu_row_values['bus_small'] * pcu_per_car['bus_small'] / 100)),
+                'bus_large': float(fmt_sig2(mix_pcu_row_values['bus_large'] * pcu_per_car['bus_large'] / 100)),
+                'truck_small': float(fmt_sig2(mix_pcu_row_values['truck_small'] * pcu_per_car['truck_small'] / 100)),
+                'truck_medium': float(fmt_sig2(mix_pcu_row_values['truck_medium'] * pcu_per_car['truck_medium'] / 100)),
+                'truck_large': float(fmt_sig2(mix_pcu_row_values['truck_large'] * pcu_per_car['truck_large'] / 100)),
+                'truck_special': float(fmt_sig2(mix_pcu_row_values['truck_special'] * pcu_per_car['truck_special'] / 100)),
+            }
+            
+            # Calculate PCU(%)/Number of Units (%)
+            pcu_weighted_total = (
+                mix_pcu_values['gasoline'] +
+                mix_pcu_values['diesel'] +
+                mix_pcu_values['bus_small'] +
+                mix_pcu_values['bus_large'] +
+                mix_pcu_values['truck_small'] +
+                mix_pcu_values['truck_medium'] +
+                mix_pcu_values['truck_large'] +
+                mix_pcu_values['truck_special']
             )
+            
+            text_widget.insert("end", f"PCU(%)/Units(%) = {math.ceil(pcu_weighted_total*10000)/10000:.4f}\n\n")
+
+            # Generate Vehicles/km,lane table using traffic density data
+            try:
+                from vent_functions import build_traffic_density_table
+                
+                # Get traffic density table for this entry
+                volume_summary = self.get_volume_summary(direction="MasanToJinju" if direction_key == "masan_jinju" else "JinjuToMasan")
+                Imax = volume_summary.get("cap_per_lane", 2000)
+                
+                # Build density table
+                density_rows = build_traffic_density_table(Imax, road_type_val)
+                
+                # Display Vehicles/km,lane table
+                text_widget.insert("end", "Table: Vehicles/km,lane Estimation\n\n")
+                density_headers = [
+                    "Speed (km/h)",
+                    "Traffic Volume (PCU/km·lane)",
+                    "Vehicles/km,lane",
+                    "Vehicle/hr, lane",
+                ]
+                density_col_widths = [15, 30, 20, 20]
+                
+                def format_density_row(values):
+                    return " ".join(str(val).ljust(width) for val, width in zip(values, density_col_widths))
+                
+                text_widget.insert("end", format_density_row(density_headers) + "\n")
+                text_widget.insert("end", format_density_row(["-" * (w - 1) for w in density_col_widths]) + "\n")
+                
+                # Calculate vehicles/km,lane and Vehicle/hr, lane for each speed
+                lanes = volume_summary.get("lanes", 1)
+                # Reset cache for this direction on each render
+                direction_cache = self.vehicle_hr_lane_cache.get(direction_key, {})
+                direction_cache.clear()
+                self.vehicle_hr_lane_cache[direction_key] = direction_cache
+                for row_data in density_rows:
+                    speed = f"{row_data.speed_kmh:.0f}"
+                    traffic_vol = f"{row_data.flow_pcu_per_hr_lane}"
+                    # Vehicles/km,lane = Traffic Volume / PCU(%)/Units(%)
+                    if pcu_weighted_total > 0:
+                        vehicles_km_lane = row_data.flow_pcu_per_hr_lane / pcu_weighted_total
+                        vehicles_km_lane_str = f"{vehicles_km_lane:.2f}"  # 2 decimal places
+                    else:
+                        vehicles_km_lane = 0.0
+                        vehicles_km_lane_str = "0.00"
+                    vehicles_hr_lane = round(row_data.speed_kmh * vehicles_km_lane * lanes, 0)
+                    vehicles_hr_lane_str = f"{vehicles_hr_lane:.0f}"
+
+                    try:
+                        direction_cache[int(row_data.speed_kmh)] = float(vehicles_hr_lane)
+                    except Exception:
+                        pass
+                    
+                    density_data_row = [
+                        speed,
+                        traffic_vol,
+                        vehicles_km_lane_str,
+                        vehicles_hr_lane_str,
+                    ]
+                    text_widget.insert("end", format_density_row(density_data_row) + "\n")
+                
+                text_widget.insert("end", "\n")
+            except Exception as e:
+                text_widget.insert("end", f"Error generating Vehicles/km,lane table: {str(e)}\n\n")
 
         # Force scroll to the top so first information is visible
         text_widget.yview_moveto(0.0)
