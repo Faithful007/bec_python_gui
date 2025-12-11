@@ -1,15 +1,21 @@
 # main_gui.py
 
 import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, scrolledtext
+from tkinter import font as tkFont
 import math
-from tkinter import ttk, messagebox, filedialog
-
+import sys
+import os
+import webbrowser
+import json
+from datetime import datetime
+from pathlib import Path
 from vent_functions import (
     TunnelVentInputs,
     compute_all,
     JET_AREA_MAP,
 )
-# :contentReference[oaicite:0]{index=0}
+from speed_grade_tables import get_all_overrides, set_table_override
 
 
 class JetFanTab(ttk.Frame):
@@ -35,19 +41,23 @@ class JetFanTab(ttk.Frame):
     # 1) Variables for widgets
     # ----------------------------
     def _build_variables(self):
-        # V_kmh as a selectable value (combobox)
+        # V_kmh as a selectable value (combobox) - SHARED ACROSS BOTH DIRECTIONS
         self.v_kmh_var = tk.DoubleVar(value=10.0)   # set to least selectable 10 km/h
 
-        # Variables the user can change
-        self.qtreq_var = tk.DoubleVar(value=0.0)    # least value
-        self.lanes_var = tk.IntVar(value=1)         # number of lanes
-        self.ar_var = tk.DoubleVar(value=1.0)       # least positive area to avoid divide-by-zero
-        self.lr_var = tk.DoubleVar(value=1.0)       # total tunnel length (will be sourced)
-        self.dr_var = tk.DoubleVar(value=1.0)       # least positive diameter to avoid divide-by-zero
+        # Jet diameter and high efficiency - SHARED ACROSS BOTH DIRECTIONS
+        jet_keys = sorted(JET_AREA_MAP.keys())
+        self.jet_choices = [str(k) for k in jet_keys]
+        smallest_jet = self.jet_choices[0]
+        self.jet_diameter_var = tk.StringVar(value=smallest_jet)
 
-        # Constants (shown but read-only)
+        self.high_eff_choices = [
+            "High efficiency (30 m/s)",   # True
+            "Standard (34 m/s)",          # False
+        ]
+        self.high_eff_var = tk.StringVar(value=self.high_eff_choices[0])
+
+        # Constants (shared)
         self.un_var = tk.DoubleVar(value=2.5)       # Un is constant for Jet Fan calc
-        # Vt (m/s) from Vt_MAP using V_kmh; displayed as a constant here
         from vent_functions import Vt_MAP
         initial_key = int(self.v_kmh_var.get())
         self.vt_var = tk.DoubleVar(value=Vt_MAP.get(initial_key, Vt_MAP.get(10)))
@@ -57,203 +67,292 @@ class JetFanTab(ttk.Frame):
         self.ae_var = tk.DoubleVar(value=1.0751)    # constant Ae
         self.eta_var = tk.DoubleVar(value=0.95)     # constant eta
 
-        # jet_diameter from JET_AREA_MAP keys
-        jet_keys = sorted(JET_AREA_MAP.keys())
-        self.jet_choices = [str(k) for k in jet_keys]
-        # set to smallest available diameter
-        smallest_jet = self.jet_choices[0]
-        self.jet_diameter_var = tk.StringVar(value=smallest_jet)
+        # Direction 1 (FROM→TO, MasanToJinju) variables
+        self.qtreq_dir1_var = tk.DoubleVar(value=0.0)
+        self.lanes_dir1_var = tk.IntVar(value=1)
+        self.ar_dir1_var = tk.DoubleVar(value=1.0)
+        self.lr_dir1_var = tk.DoubleVar(value=1.0)
+        self.dr_dir1_var = tk.DoubleVar(value=1.0)
+        self.imax_dir1_var = tk.DoubleVar(value=0.0)
+        self.exact_z_dir1_var = tk.StringVar(value="-")
+        self.approx_z_dir1_var = tk.StringVar(value="-")
 
-        # high_efficiency dropdown (we'll map to bool)
-        self.high_eff_choices = [
-            "High efficiency (30 m/s)",   # True
-            "Standard (34 m/s)",          # False
-        ]
-        # keep the first option (least discharge speed: High efficiency 30 m/s)
-        self.high_eff_var = tk.StringVar(value=self.high_eff_choices[0])
+        # Direction 2 (TO→FROM, JinjuToMasan) variables
+        self.qtreq_dir2_var = tk.DoubleVar(value=0.0)
+        self.lanes_dir2_var = tk.IntVar(value=1)
+        self.ar_dir2_var = tk.DoubleVar(value=1.0)
+        self.lr_dir2_var = tk.DoubleVar(value=1.0)
+        self.dr_dir2_var = tk.DoubleVar(value=1.0)
+        self.imax_dir2_var = tk.DoubleVar(value=0.0)
+        self.exact_z_dir2_var = tk.StringVar(value="-")
+        self.approx_z_dir2_var = tk.StringVar(value="-")
 
-        # a small label to show result on this tab
+        # Legacy variables for backward compatibility (can be removed later)
         self.result_var = tk.StringVar(value="")
-
-        # dynamic labels for exact/approx results
-        self.exact_z_var = tk.StringVar(value="-")
-        self.approx_z_var = tk.StringVar(value="-")
-
-        # Hidden variable for Imax (capacity per lane) sourced from Volume tab
-        self.imax_var = tk.DoubleVar(value=0.0)
+        
+        # References to LabelFrame widgets for dynamic title updates
+        self.dir1_labelframe = None
+        self.dir2_labelframe = None
 
     # ----------------------------
     # 2) Layout / widgets
     # ----------------------------
     def _build_layout(self):
-        # Create a container frame with padding
-        container = ttk.Frame(self, padding="20 20 20 20")
-        container.pack(fill="both", expand=True)
+        # Create a main container with padding
+        main_container = ttk.Frame(self, padding="20 20 20 20")
+        main_container.pack(fill="both", expand=True)
+        
+        # Get direction names from volume_tab if available
+        dir1_name = "FROM"
+        dir2_name = "TO"
+        if self.volume_tab:
+            try:
+                dir1_name = self.volume_tab.dir1Name.get()
+                dir2_name = self.volume_tab.dir2Name.get()
+            except:
+                pass
         
         pad = 6
-
-        # Left column: main variables
-        row = 0
-
-        ttk.Label(container, text="Driving speed V_kmh (km/h):").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
+        
+        # ============ TOP SECTION: Shared controls (V_kmh, jet_diameter, high_eff) ============
+        top_frame = ttk.LabelFrame(main_container, text="Shared Parameters", padding="10 10 10 10")
+        top_frame.pack(fill="x", padx=0, pady=(0, pad * 3))
+        
+        # Row 0: Driving speed V_kmh
+        ttk.Label(top_frame, text="Driving speed V_kmh (km/h):").grid(
+            row=0, column=0, sticky="e", padx=pad, pady=pad
         )
         v_kmh_cb = ttk.Combobox(
-            container,
+            top_frame,
             textvariable=self.v_kmh_var,
             values=[10, 20, 30, 40, 50, 60, 70, 80],
             state="readonly",
             width=10,
         )
         v_kmh_cb.bind("<<ComboboxSelected>>", self._on_vkmh_changed)
-        v_kmh_cb.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        ttk.Label(container, text="Required ventilation Qtreq (m³/s):").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        ttk.Entry(container, textvariable=self.qtreq_var, width=12).grid(
-            row=row, column=1, sticky="w", padx=pad, pady=pad
-        )
-        row += 1
-
-        ttk.Label(container, text="Number of lanes:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        ttk.Entry(container, textvariable=self.lanes_var, width=12).grid(
-            row=row, column=1, sticky="w", padx=pad, pady=pad
-        )
-        row += 1
-
-
-        ttk.Label(container, text="Tunnel cross-sectional area Ar (m²):").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        ttk.Entry(container, textvariable=self.ar_var, width=12, state="readonly").grid(
-            row=row, column=1, sticky="w", padx=pad, pady=pad
-        )
-        row += 1
-
-        ttk.Label(container, text="Tunnel length Lr (m):").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        ttk.Entry(container, textvariable=self.lr_var, width=12, state="readonly").grid(
-            row=row, column=1, sticky="w", padx=pad, pady=pad
-        )
-        row += 1
-
-        ttk.Label(container, text="Representative diameter Dr (m):").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        ttk.Entry(container, textvariable=self.dr_var, width=12, state="readonly").grid(
-            row=row, column=1, sticky="w", padx=pad, pady=pad
-        )
-        row += 1
-
-        ttk.Label(container, text="Jet fan diameter Φ (mm):").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
+        v_kmh_cb.grid(row=0, column=1, sticky="w", padx=pad, pady=pad)
+        
+        # Row 0: Jet fan diameter (continuing on same row)
+        ttk.Label(top_frame, text="Jet fan diameter Φ (mm):").grid(
+            row=0, column=2, sticky="e", padx=pad, pady=pad
         )
         jet_cb = ttk.Combobox(
-            container,
+            top_frame,
             textvariable=self.jet_diameter_var,
             values=self.jet_choices,
             state="readonly",
             width=12,
         )
-        jet_cb.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        ttk.Label(container, text="Jet fan type:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
+        jet_cb.grid(row=0, column=3, sticky="w", padx=pad, pady=pad)
+        
+        # Row 1: Jet fan type
+        ttk.Label(top_frame, text="Jet fan type:").grid(
+            row=1, column=0, sticky="e", padx=pad, pady=pad
         )
         eff_cb = ttk.Combobox(
-            container,
+            top_frame,
             textvariable=self.high_eff_var,
             values=self.high_eff_choices,
             state="readonly",
             width=22,
         )
-        eff_cb.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
+        eff_cb.grid(row=1, column=1, columnspan=3, sticky="w", padx=pad, pady=pad)
+        
+        # Configure columns for top frame
+        top_frame.columnconfigure(0, weight=0)
+        top_frame.columnconfigure(1, weight=1)
+        top_frame.columnconfigure(2, weight=0)
+        top_frame.columnconfigure(3, weight=1)
+        
+        # ============ TWO-COLUMN SECTION: Direction 1 and Direction 2 ============
+        columns_frame = ttk.Frame(main_container)
+        columns_frame.pack(fill="both", expand=True)
+        
+        # Left column (DIR1): FROM → TO
+        self._build_direction_column(columns_frame, 0, dir1_name, dir2_name, 
+                                     self.qtreq_dir1_var, self.lanes_dir1_var, 
+                                     self.ar_dir1_var, self.lr_dir1_var, self.dr_dir1_var,
+                                     self.exact_z_dir1_var, self.approx_z_dir1_var,
+                                     self.imax_dir1_var)
+        
+        # Right column (DIR2): TO → FROM
+        self._build_direction_column(columns_frame, 1, dir2_name, dir1_name, 
+                                     self.qtreq_dir2_var, self.lanes_dir2_var, 
+                                     self.ar_dir2_var, self.lr_dir2_var, self.dr_dir2_var,
+                                     self.exact_z_dir2_var, self.approx_z_dir2_var,
+                                     self.imax_dir2_var)
+        
+        # Configure column weights for two-column layout
+        columns_frame.columnconfigure(0, weight=1)
+        columns_frame.columnconfigure(1, weight=1)
+        
+        # ============ BOTTOM SECTION: Constants ============
+        bottom_frame = ttk.LabelFrame(main_container, text="Jet Fan Constants", padding="10 10 10 10")
+        bottom_frame.pack(fill="x", padx=0, pady=(pad * 3, 0))
+        
+        # Row 0: Un, Vt
+        ttk.Label(bottom_frame, text="Natural wind speed Un (m/s):").grid(
+            row=0, column=0, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(bottom_frame, textvariable=self.un_var, width=12, state="readonly").grid(
+            row=0, column=1, sticky="w", padx=pad, pady=pad
+        )
+        
+        ttk.Label(bottom_frame, text="Driving speed Vt (m/s):").grid(
+            row=0, column=2, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(bottom_frame, textvariable=self.vt_var, width=12, state="readonly").grid(
+            row=0, column=3, sticky="w", padx=pad, pady=pad
+        )
+        
+        # Row 1: ρ, ξ
+        ttk.Label(bottom_frame, text="Air density ρ (kg/m³):").grid(
+            row=1, column=0, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(bottom_frame, textvariable=self.rho_var, width=12, state="readonly").grid(
+            row=1, column=1, sticky="w", padx=pad, pady=pad
+        )
+        
+        ttk.Label(bottom_frame, text="Entrance loss ξ:").grid(
+            row=1, column=2, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(bottom_frame, textvariable=self.xi_var, width=12, state="readonly").grid(
+            row=1, column=3, sticky="w", padx=pad, pady=pad
+        )
+        
+        # Row 2: λ, Ae
+        ttk.Label(bottom_frame, text="Friction loss λ:").grid(
+            row=2, column=0, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(bottom_frame, textvariable=self.lamb_var, width=12, state="readonly").grid(
+            row=2, column=1, sticky="w", padx=pad, pady=pad
+        )
+        
+        ttk.Label(bottom_frame, text="Equivalent resistance Ae (m²):").grid(
+            row=2, column=2, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(bottom_frame, textvariable=self.ae_var, width=12, state="readonly").grid(
+            row=2, column=3, sticky="w", padx=pad, pady=pad
+        )
+        
+        # Row 3: η
+        ttk.Label(bottom_frame, text="Jet fan efficiency η:").grid(
+            row=3, column=0, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(bottom_frame, textvariable=self.eta_var, width=12, state="readonly").grid(
+            row=3, column=1, sticky="w", padx=pad, pady=pad
+        )
+        
+        # Configure columns for bottom frame
+        bottom_frame.columnconfigure(0, weight=0)
+        bottom_frame.columnconfigure(1, weight=1)
+        bottom_frame.columnconfigure(2, weight=0)
+        bottom_frame.columnconfigure(3, weight=1)
 
+    def _build_direction_column(self, parent, col_idx, dir_from, dir_to,
+                                 qtreq_var, lanes_var, ar_var, lr_var, dr_var,
+                                 exact_z_var, approx_z_var, imax_var):
+        """Build a single direction column for bidirectional layout.
+        
+        Args:
+            parent: Parent frame
+            col_idx: Column index for this direction (0 or 1)
+            dir_from: Direction label (e.g., "FROM" or "TO")
+            dir_to: Opposite direction label
+            qtreq_var, lanes_var, ar_var, lr_var, dr_var: Variables for this direction
+            exact_z_var, approx_z_var: Result variables
+            imax_var: Capacity variable
+        """
+        pad = 6
+        
+        # Create frame for this column
+        col_frame = ttk.LabelFrame(parent, text=f"Calculate number needed from {dir_from} to {dir_to}", 
+                                   padding="10 10 10 10")
+        col_frame.grid(row=0, column=col_idx, sticky="nsew", padx=pad, pady=0)
+        
+        # Store reference for dynamic title updates
+        if col_idx == 0:
+            self.dir1_labelframe = col_frame
+        else:
+            self.dir2_labelframe = col_frame
+        
+        row = 0
+        
+        # Required ventilation Qtreq
+        ttk.Label(col_frame, text="Required ventilation Qtreq (m³/s):").grid(
+            row=row, column=0, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(col_frame, textvariable=qtreq_var, width=12).grid(
+            row=row, column=1, sticky="w", padx=pad, pady=pad
+        )
+        row += 1
+        
+        # Number of lanes
+        ttk.Label(col_frame, text="Number of lanes:").grid(
+            row=row, column=0, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(col_frame, textvariable=lanes_var, width=12).grid(
+            row=row, column=1, sticky="w", padx=pad, pady=pad
+        )
+        row += 1
+        
+        # Tunnel cross-sectional area Ar
+        ttk.Label(col_frame, text="Tunnel cross-sectional area Ar (m²):").grid(
+            row=row, column=0, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(col_frame, textvariable=ar_var, width=12, state="readonly").grid(
+            row=row, column=1, sticky="w", padx=pad, pady=pad
+        )
+        row += 1
+        
+        # Tunnel length Lr
+        ttk.Label(col_frame, text="Tunnel length Lr (m):").grid(
+            row=row, column=0, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(col_frame, textvariable=lr_var, width=12, state="readonly").grid(
+            row=row, column=1, sticky="w", padx=pad, pady=pad
+        )
+        row += 1
+        
+        # Representative diameter Dr
+        ttk.Label(col_frame, text="Representative diameter Dr (m):").grid(
+            row=row, column=0, sticky="e", padx=pad, pady=pad
+        )
+        ttk.Entry(col_frame, textvariable=dr_var, width=12, state="readonly").grid(
+            row=row, column=1, sticky="w", padx=pad, pady=pad
+        )
+        row += 1
+        
         # Separator
-        ttk.Separator(container, orient="horizontal").grid(
-            row=row, column=0, columnspan=3, sticky="ew", pady=(pad * 3, pad * 2)
+        ttk.Separator(col_frame, orient="horizontal").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=(pad * 3, pad * 2)
         )
         row += 1
-
-        # Right column: constants, displayed read-only
-        ttk.Label(container, text="Natural wind speed Un (m/s) [computed]:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        un_entry = ttk.Entry(container, textvariable=self.un_var, width=12, state="readonly")
-        un_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        ttk.Label(container, text="Driving speed Vt (m/s) [from map]:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        vt_entry = ttk.Entry(container, textvariable=self.vt_var, width=12, state="readonly")
-        vt_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        ttk.Label(container, text="Air density ρ (kg/m³):").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        rho_entry = ttk.Entry(container, textvariable=self.rho_var, width=12, state="readonly")
-        rho_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        ttk.Label(container, text="Entrance loss ξ:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        xi_entry = ttk.Entry(container, textvariable=self.xi_var, width=12, state="readonly")
-        xi_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        ttk.Label(container, text="Friction loss λ:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        lamb_entry = ttk.Entry(container, textvariable=self.lamb_var, width=12, state="readonly")
-        lamb_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        ttk.Label(container, text="Equivalent resistance area Ae (m²):").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        ae_entry = ttk.Entry(container, textvariable=self.ae_var, width=12, state="readonly")
-        ae_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        ttk.Label(container, text="Jet fan efficiency η:").grid(
-            row=row, column=0, sticky="e", padx=pad, pady=pad
-        )
-        eta_entry = ttk.Entry(container, textvariable=self.eta_var, width=12, state="readonly")
-        eta_entry.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
-        row += 1
-
-        # Dynamic results labels
-        ttk.Label(container, text="Exact number of Jet Fan Require =").grid(
+        
+        # Results
+        ttk.Label(col_frame, text="Exact number of Jet Fans required:").grid(
             row=row, column=0, sticky="e", padx=pad, pady=(pad, 0)
         )
-        ttk.Label(container, textvariable=self.exact_z_var, foreground="#004080").grid(
+        ttk.Label(col_frame, textvariable=exact_z_var, foreground="#004080", font=("Arial", 11, "bold")).grid(
             row=row, column=1, sticky="w", padx=pad, pady=(pad, 0)
         )
         row += 1
-        ttk.Label(container, text="Approximated Number of Jet Fan Require =").grid(
+        
+        ttk.Label(col_frame, text="Approximated number required:").grid(
             row=row, column=0, sticky="e", padx=pad, pady=(0, pad)
         )
-        ttk.Label(container, textvariable=self.approx_z_var, foreground="#004080").grid(
+        ttk.Label(col_frame, textvariable=approx_z_var, foreground="#004080", font=("Arial", 11, "bold")).grid(
             row=row, column=1, sticky="w", padx=pad, pady=(0, pad)
         )
-
-        # Make columns expand a bit
-        container.columnconfigure(0, weight=0)
-        container.columnconfigure(1, weight=1)
+        
+        # Configure columns
+        col_frame.columnconfigure(0, weight=0)
+        col_frame.columnconfigure(1, weight=1)
 
         # Traces for dynamic recompute
         # Traces update constants only; jet fan count computed on Summary click
-        for var in [self.v_kmh_var, self.qtreq_var, self.lanes_var, self.rho_var, self.xi_var, self.lamb_var, self.ae_var, self.eta_var, self.jet_diameter_var, self.high_eff_var]:
+        for var in [self.v_kmh_var, qtreq_var, lanes_var, self.rho_var, self.xi_var, 
+                    self.lamb_var, self.ae_var, self.eta_var, self.jet_diameter_var, self.high_eff_var]:
             try:
                 var.trace_add("write", lambda *a: self._recompute_dynamic())
             except Exception:
@@ -262,17 +361,39 @@ class JetFanTab(ttk.Frame):
     # ----------------------------
     # 3) Data extraction + compute
     # ----------------------------
-    def _build_inputs_object(self) -> TunnelVentInputs:
-        """Build TunnelVentInputs from the widget variables."""
+    def _build_inputs_object(self, direction=1) -> TunnelVentInputs:
+        """Build TunnelVentInputs from the widget variables for a specific direction.
+        
+        Args:
+            direction: 1 for FROM→TO (dir1), 2 for TO→FROM (dir2)
+        """
         # Map high_eff dropdown to bool
         high_eff_str = self.high_eff_var.get()
         high_eff_bool = high_eff_str.startswith("High")
+
+        # Select variables based on direction
+        if direction == 1:
+            qtreq_var = self.qtreq_dir1_var
+            lanes_var = self.lanes_dir1_var
+            ar_var = self.ar_dir1_var
+            lr_var = self.lr_dir1_var
+            dr_var = self.dr_dir1_var
+            imax_var = self.imax_dir1_var
+            direction_str = "MasanToJinju"
+        else:
+            qtreq_var = self.qtreq_dir2_var
+            lanes_var = self.lanes_dir2_var
+            ar_var = self.ar_dir2_var
+            lr_var = self.lr_dir2_var
+            dr_var = self.dr_dir2_var
+            imax_var = self.imax_dir2_var
+            direction_str = "JinjuToMasan"
 
         vehicle_hr_lane = None
         try:
             if self.volume_tab:
                 vehicle_hr_lane = self.volume_tab.get_vehicle_hr_lane(
-                    direction="MasanToJinju",
+                    direction=direction_str,
                     speed_kmh=float(self.v_kmh_var.get()),
                 )
         except Exception:
@@ -280,16 +401,16 @@ class JetFanTab(ttk.Frame):
 
         return TunnelVentInputs(
             V_kmh=float(self.v_kmh_var.get()),
-            Qtreq=float(self.qtreq_var.get()),
-            Imax=float(self.imax_var.get()),
+            Qtreq=float(qtreq_var.get()),
+            Imax=float(imax_var.get()),
             road_type=1,
-            lanes=int(self.lanes_var.get()),
-            Ar=float(self.ar_var.get()),
-            Lr=float(self.lr_var.get()),
+            lanes=int(lanes_var.get()),
+            Ar=float(ar_var.get()),
+            Lr=float(lr_var.get()),
             rho=float(self.rho_var.get()),
             xi=float(self.xi_var.get()),
             lamb=float(self.lamb_var.get()),
-            Dr=float(self.dr_var.get()),
+            Dr=float(dr_var.get()),
             Ae=float(self.ae_var.get()),
             jet_diameter=int(self.jet_diameter_var.get()),
             high_efficiency=high_eff_bool,
@@ -310,75 +431,163 @@ class JetFanTab(ttk.Frame):
         self._recompute_dynamic()
 
     def _on_compute(self):
-        """Callback for 'Compute jet fan number' button."""
+        """Callback for 'Compute jet fan number' button - compute for both directions."""
         try:
-            inp = self._build_inputs_object()
-            results = compute_all(inp)
+            # Compute Direction 1 (FROM→TO)
+            inp_dir1 = self._build_inputs_object(direction=1)
+            results_dir1 = compute_all(inp_dir1)
+            self.exact_z_dir1_var.set(f"{results_dir1.Z_raw:.2f}")
+            self.approx_z_dir1_var.set(f"{results_dir1.Z_applied}")
+            
+            # Compute Direction 2 (TO→FROM)
+            inp_dir2 = self._build_inputs_object(direction=2)
+            results_dir2 = compute_all(inp_dir2)
+            self.exact_z_dir2_var.set(f"{results_dir2.Z_raw:.2f}")
+            self.approx_z_dir2_var.set(f"{results_dir2.Z_applied}")
 
-            # Show summary in this tab
-            self.result_var.set(
-                f"Z_raw = {results.Z_raw}, Applied jet fans Z = {results.Z_applied}"
-            )
-
-            # Send detailed results to result tab if available
+            # Send first direction results to result tab if available
             if self.result_tab:
-                self.result_tab.display_results(inp, results)
+                self.result_tab.display_results(inp_dir1, results_dir1)
 
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
     def _recompute_dynamic(self):
         # Do not compute jet fan count dynamically; only update constants
-        self.exact_z_var.set("-")
-        self.approx_z_var.set("-")
+        self.exact_z_dir1_var.set("-")
+        self.approx_z_dir1_var.set("-")
+        self.exact_z_dir2_var.set("-")
+        self.approx_z_dir2_var.set("-")
         self.result_var.set("")
 
     def _wire_volume_sources(self):
         if not self.volume_tab:
             return
-        # Sync Ar, Lr, Dr from VentilationVolumeTab (Masan→Jinju by default)
-        def sync(*_):
+        
+        # Sync for Direction 1 (FROM→TO, MasanToJinju)
+        def sync_dir1(*_):
             try:
                 params = self.volume_tab.get_params_for_jet(direction="MasanToJinju")
                 volsum = self.volume_tab.get_volume_summary(direction="MasanToJinju")
-                # Geometry
-                self.ar_var.set(params.get("Ar", self.ar_var.get()))
-                self.lr_var.set(params.get("Lr_m", self.lr_var.get()))
-                self.dr_var.set(params.get("Dr", self.dr_var.get()))
+                # Geometry - use Average values from TunnelGeometry
+                self.ar_dir1_var.set(params.get("Ar", self.ar_dir1_var.get()))
+                self.lr_dir1_var.set(params.get("Lr_m", self.lr_dir1_var.get()))
+                self.dr_dir1_var.set(params.get("Dr", self.dr_dir1_var.get()))
                 # Capacity and lanes (Imax is capacity per lane from volume tab)
-                self.imax_var.set(volsum.get("cap_per_lane", self.imax_var.get()))
+                self.imax_dir1_var.set(volsum.get("cap_per_lane", self.imax_dir1_var.get()))
                 # Default lanes from volume summary if available
                 lanes_from_volume = volsum.get("lanes")
                 if isinstance(lanes_from_volume, int) and lanes_from_volume >= 1:
-                    self.lanes_var.set(lanes_from_volume)
+                    self.lanes_dir1_var.set(lanes_from_volume)
                 self._recompute_dynamic()
+            except Exception as e:
+                pass
+        
+        # Sync for Direction 2 (TO→FROM, JinjuToMasan)
+        def sync_dir2(*_):
+            try:
+                params = self.volume_tab.get_params_for_jet(direction="JinjuToMasan")
+                volsum = self.volume_tab.get_volume_summary(direction="JinjuToMasan")
+                # Geometry - use Average values from TunnelGeometry
+                self.ar_dir2_var.set(params.get("Ar", self.ar_dir2_var.get()))
+                self.lr_dir2_var.set(params.get("Lr_m", self.lr_dir2_var.get()))
+                self.dr_dir2_var.set(params.get("Dr", self.dr_dir2_var.get()))
+                # Capacity and lanes (Imax is capacity per lane from volume tab)
+                self.imax_dir2_var.set(volsum.get("cap_per_lane", self.imax_dir2_var.get()))
+                # Default lanes from volume summary if available
+                lanes_from_volume = volsum.get("lanes")
+                if isinstance(lanes_from_volume, int) and lanes_from_volume >= 1:
+                    self.lanes_dir2_var.set(lanes_from_volume)
+                self._recompute_dynamic()
+            except Exception as e:
+                pass
+        
+        # Trace Direction 1 (MasanToJinju)
+        try:
+            if hasattr(self.volume_tab, 'tunnelGeometryMasanToJinju'):
+                self.volume_tab.tunnelGeometryMasanToJinju.avg_ar_var.trace_add("write", sync_dir1)
+                self.volume_tab.tunnelGeometryMasanToJinju.avg_lp_var.trace_add("write", sync_dir1)
+                self.volume_tab.tunnelGeometryMasanToJinju.dr_var.trace_add("write", sync_dir1)
+            self.volume_tab.totalLengthMasanToJinju_m.trace_add("write", sync_dir1)
+            self.volume_tab.designSpeedMasanToJinju.trace_add("write", sync_dir1)
+        except Exception as e:
+            pass
+        
+        # Trace Direction 2 (JinjuToMasan)
+        try:
+            if hasattr(self.volume_tab, 'tunnelGeometryJinjuToMasan'):
+                self.volume_tab.tunnelGeometryJinjuToMasan.avg_ar_var.trace_add("write", sync_dir2)
+                self.volume_tab.tunnelGeometryJinjuToMasan.avg_lp_var.trace_add("write", sync_dir2)
+                self.volume_tab.tunnelGeometryJinjuToMasan.dr_var.trace_add("write", sync_dir2)
+            self.volume_tab.totalLengthJinjuToMasan_m.trace_add("write", sync_dir2)
+            self.volume_tab.designSpeedJinjuToMasan.trace_add("write", sync_dir2)
+        except Exception as e:
+            pass
+        
+        # Schedule initial sync after a short delay to ensure TunnelGeometry is created
+        def delayed_sync():
+            try:
+                # Re-register traces in case TunnelGeometry wasn't ready earlier
+                if hasattr(self.volume_tab, 'tunnelGeometryMasanToJinju'):
+                    try:
+                        self.volume_tab.tunnelGeometryMasanToJinju.avg_ar_var.trace_add("write", sync_dir1)
+                        self.volume_tab.tunnelGeometryMasanToJinju.avg_lp_var.trace_add("write", sync_dir1)
+                        self.volume_tab.tunnelGeometryMasanToJinju.dr_var.trace_add("write", sync_dir1)
+                    except:
+                        pass
+                if hasattr(self.volume_tab, 'tunnelGeometryJinjuToMasan'):
+                    try:
+                        self.volume_tab.tunnelGeometryJinjuToMasan.avg_ar_var.trace_add("write", sync_dir2)
+                        self.volume_tab.tunnelGeometryJinjuToMasan.avg_lp_var.trace_add("write", sync_dir2)
+                        self.volume_tab.tunnelGeometryJinjuToMasan.dr_var.trace_add("write", sync_dir2)
+                    except:
+                        pass
+                sync_dir1()
+                sync_dir2()
             except Exception:
                 pass
-        # Trace on Ar/Lp/total length vars
+        
+        # Use after() to delay initial sync by 100ms
+        self.after(100, delayed_sync)
+        
+        # Trace direction name changes to update LabelFrame titles
         try:
-            self.volume_tab.tunnelArMasanToJinju.trace_add("write", sync)
-            self.volume_tab.tunnelLpMasanToJinju.trace_add("write", sync)
-            self.volume_tab.totalLengthMasanToJinju_m.trace_add("write", sync)
-            # Also trace design speed to refresh capacity per lane (Imax)
-            self.volume_tab.designSpeedMasanToJinju.trace_add("write", sync)
+            if hasattr(self.volume_tab, 'dir1Name') and hasattr(self.volume_tab, 'dir2Name'):
+                def update_labels(*_):
+                    try:
+                        dir1 = self.volume_tab.dir1Name.get()
+                        dir2 = self.volume_tab.dir2Name.get()
+                        if self.dir1_labelframe:
+                            self.dir1_labelframe.config(text=f"Calculate number needed from {dir1} to {dir2}")
+                        if self.dir2_labelframe:
+                            self.dir2_labelframe.config(text=f"Calculate number needed from {dir2} to {dir1}")
+                    except Exception:
+                        pass
+                
+                self.volume_tab.dir1Name.trace_add("write", update_labels)
+                self.volume_tab.dir2Name.trace_add("write", update_labels)
         except Exception:
             pass
-        # Initial sync
-        sync()
 
     def compute_and_publish(self):
-        """Compute jet fan numbers and publish to the Results tab."""
+        """Compute jet fan numbers for both directions."""
         try:
-            inp = self._build_inputs_object()
-            results = compute_all(inp)
-            self.exact_z_var.set(f"{results.Z_raw:.3f}")
-            self.approx_z_var.set(f"{results.Z_applied}")
-            if self.result_tab:
-                self.result_tab.display_results(inp, results)
-            return inp, results
+            # Compute Direction 1 (FROM→TO)
+            inp_dir1 = self._build_inputs_object(direction=1)
+            results_dir1 = compute_all(inp_dir1)
+            self.exact_z_dir1_var.set(f"{results_dir1.Z_raw:.2f}")
+            self.approx_z_dir1_var.set(f"{results_dir1.Z_applied}")
+            
+            # Compute Direction 2 (TO→FROM)
+            inp_dir2 = self._build_inputs_object(direction=2)
+            results_dir2 = compute_all(inp_dir2)
+            self.exact_z_dir2_var.set(f"{results_dir2.Z_raw:.2f}")
+            self.approx_z_dir2_var.set(f"{results_dir2.Z_applied}")
+            
+            return inp_dir1, results_dir1, inp_dir2, results_dir2
         except Exception as e:
             messagebox.showerror("Error", str(e))
-            return None, None
+            return None, None, None, None
 
 
 class ResultsTab(ttk.Frame):
@@ -582,6 +791,214 @@ class ResultsTab(ttk.Frame):
 
         self.text_widget.config(state="disabled")
 
+    def display_results_dual(self, dir1_label, dir2_label, inp1, res1, inp2, res2, 
+                           traffic_logic_dir1=None, traffic_logic_dir2=None):
+        """Display full formulas/calculations for both directions with traffic estimation."""
+        self.text_widget.config(state="normal")
+        self.text_widget.delete(1.0, "end")
+
+        def _render_full_calc(title, inp, results, traffic_logic=None):
+            self._add_text(f"\n{title}\n", "heading")
+            self._add_text("="*80 + "\n\n")
+            
+            # INPUT PARAMETERS
+            self._add_text("INPUT PARAMETERS\n", "subheading")
+            self._add_text("-"*80 + "\n")
+            self._add_text(f"Driving speed V_kmh:              {inp.V_kmh} km/h\n")
+            self._add_text(f"Required ventilation Qtreq:       {inp.Qtreq} m³/s\n")
+            self._add_text(f"Natural wind speed Un (computed): {results.Un} m/s\n")
+            self._add_text(f"Number of lanes:                  {inp.lanes}\n")
+            self._add_text(f"Tunnel cross-sectional area Ar:   {inp.Ar} m²\n")
+            self._add_text(f"Tunnel length Lr:                 {inp.Lr} m\n")
+            self._add_text(f"Air density ρ:                    {inp.rho} kg/m³\n")
+            self._add_text(f"Entrance loss ξ:                  {inp.xi}\n")
+            self._add_text(f"Friction loss λ:                  {inp.lamb}\n")
+            self._add_text(f"Representative diameter Dr:       {inp.Dr} m\n")
+            self._add_text(f"Equivalent resistance area Ae:    {inp.Ae} m²\n")
+            self._add_text(f"Jet fan diameter Φ:               {inp.jet_diameter} mm\n")
+            self._add_text(f"Jet fan type:                     {'High efficiency' if inp.high_efficiency else 'Standard'}\n")
+            self._add_text(f"Jet fan efficiency η:             {inp.eta}\n\n")
+
+            # CALCULATION STEPS
+            self._add_text("CALCULATION STEPS\n", "subheading")
+            self._add_text("="*80 + "\n\n")
+
+            # 1. Vt
+            self._add_text("1. Driving speed (Vt)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("Vt = Vt_MAP[V_kmh] (lookup)\n", "formula")
+            self._add_text(f"   Selected V_kmh = {inp.V_kmh} km/h\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"Vt = {results.Vt} m/s\n\n", "result")
+
+            # 2. Vr
+            self._add_text("2. Roadway wind speed (Vr)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("Vr = Qtreq / Ar\n", "formula")
+            self._add_text(f"   Calculation: Vr = {inp.Qtreq} / {inp.Ar}\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"Vr = {results.Vr} m/s\n\n", "result")
+
+            # 3. Un
+            self._add_text("3. Natural wind speed (Un)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("Un = 2.5 (constant for Jet Fan calc)\n", "formula")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"Un = {results.Un} m/s\n\n", "result")
+
+            # 4. Aj
+            self._add_text("4. Jet fan area (Aj)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("Aj = Lookup from jet diameter map\n", "formula")
+            self._add_text(f"   Jet diameter Φ = {inp.jet_diameter} mm\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"Aj = {results.Aj} m²\n\n", "result")
+
+            # 5. Vj
+            self._add_text("5. Jet fan discharge speed (Vj)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("Vj = 30 m/s (High efficiency) or 34 m/s (Standard)\n", "formula")
+            self._add_text(f"   Type: {'High efficiency' if inp.high_efficiency else 'Standard'}\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"Vj = {results.Vj} m/s\n\n", "result")
+
+            # 6. n
+            self._add_text("6. Number of vehicles in tunnel (n)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("n = ROUND(Q × lanes × Lr / (3600 × Vt) + 0.4)\n", "formula")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"n = {results.n} vehicles\n\n", "result")
+
+            # 7. Kj
+            self._add_text("7. Jet fan pressure coefficient (Kj)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("Kj = 0.99 (Vr<4), 0.92 (4≤Vr<8), 0.9 (Vr≥8)\n", "formula")
+            self._add_text(f"   Vr = {results.Vr} m/s\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"Kj = {results.Kj}\n\n", "result")
+
+            # Common factor
+            common_factor = (1 + inp.xi + inp.lamb * inp.Lr / inp.Dr) * inp.rho / 2.0
+            self._add_text("Common factor for pressure calculations:\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("CF = (1 + ξ + λ × Lr / Dr) × ρ / 2\n", "formula")
+            self._add_text(f"   Calculation: CF = (1 + {inp.xi} + {inp.lamb} × {inp.Lr} / {inp.Dr}) × {inp.rho} / 2\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"CF = {common_factor:.4f}\n\n", "result")
+
+            # 8. Pr
+            self._add_text("8. Roadway wind pressure loss (ΔPr)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("ΔPr = CF × Vr²\n", "formula")
+            self._add_text(f"   Calculation: ΔPr = {common_factor:.4f} × {results.Vr}²\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"ΔPr = {results.Pr} Pa\n\n", "result")
+
+            # 9. Pm
+            self._add_text("9. Natural wind pressure loss (ΔPm)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("ΔPm = CF × Un²\n", "formula")
+            self._add_text(f"   Calculation: ΔPm = {common_factor:.4f} × {results.Un}²\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"ΔPm = {results.Pm} Pa\n\n", "result")
+
+            # 10. Pt
+            self._add_text("10. Total pressure loss (ΔPt)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("ΔPt = ΔPr + ΔPm\n", "formula")
+            self._add_text(f"   Calculation: ΔPt = {results.Pr} + {results.Pm}\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"ΔPt = {results.Pt} Pa\n\n", "result")
+
+            # 11. Tj
+            self._add_text("11. Total jet thrust required (Tj)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("Tj = ΔPt × Ar\n", "formula")
+            self._add_text(f"   Calculation: Tj = {results.Pt} × {inp.Ar}\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"Tj = {results.Tj} N\n\n", "result")
+
+            # 12. KjA
+            self._add_text("12. Jet area effectiveness (KjA)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("KjA = Kj × Aj\n", "formula")
+            self._add_text(f"   Calculation: KjA = {results.Kj} × {results.Aj}\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"KjA = {results.KjA}\n\n", "result")
+
+            # 13. Z_raw
+            self._add_text("13. Exact number of jet fans (Z_raw)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("Z_raw = Tj / (η × ρ × Vj² × KjA)\n", "formula")
+            self._add_text(f"   Calculation: Z_raw = {results.Tj} / ({inp.eta} × {inp.rho} × {results.Vj}² × {results.KjA})\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"Z_raw = {results.Z_raw}\n\n", "result")
+
+            # 14. Z_applied
+            self._add_text("14. Applied number of jet fans (Z_applied)\n", "subheading")
+            self._add_text("   Formula: ", "formula")
+            self._add_text("Z_applied = ROUND(Z_raw) if Z_raw > 0, else 0\n", "formula")
+            self._add_text(f"   Calculation: Z_applied = ROUND({results.Z_raw})\n")
+            self._add_text(f"   Result: ", "result")
+            self._add_text(f"Z_applied = {results.Z_applied} fans\n\n", "result")
+
+            # Final summary
+            self._add_text("-"*80 + "\n", "heading")
+            self._add_text("FINAL RESULT\n", "heading")
+            self._add_text("-"*80 + "\n", "heading")
+            self._add_text(f"Required jet fan count (calculated): {results.Z_raw}\n", "result")
+            self._add_text(f"Applied jet fan count (rounded up): {results.Z_applied} fans\n\n", "result")
+
+            # Traffic Estimation Section (if data available)
+            if traffic_logic and traffic_logic.batch:
+                self._add_text("\n")
+                self._add_text("-"*80 + "\n", "heading")
+                self._add_text("TRAFFIC ESTIMATION RESULTS\n", "heading")
+                self._add_text("-"*80 + "\n\n", "heading")
+                
+                for entry in traffic_logic.batch:
+                    if not entry.result:
+                        continue
+                    res = entry.result
+                    inp_traffic = entry.inputs
+                    
+                    self._add_text(f"Year: {entry.year}\n", "subheading")
+                    self._add_text("-"*60 + "\n")
+                    self._add_text("Vehicle Breakdown:\n", "subheading")
+                    self._add_text(f"  Passenger Vehicles:       {inp_traffic.passenger_aadt:,.0f}\n")
+                    self._add_text(f"    - Gasoline (60%):       {res.counts.get('passengerGasoline', 0):,.0f}\n")
+                    self._add_text(f"    - Diesel (40%):         {res.counts.get('passengerDiesel', 0):,.0f}\n")
+                    self._add_text(f"  Bus Small:                {inp_traffic.bus_small:,.0f}\n")
+                    self._add_text(f"  Bus Large:                {inp_traffic.bus_large:,.0f}\n")
+                    self._add_text(f"  Truck Small:              {inp_traffic.truck_small:,.0f}\n")
+                    self._add_text(f"  Truck Medium:             {inp_traffic.truck_medium:,.0f}\n")
+                    self._add_text(f"  Truck Large:              {inp_traffic.truck_large:,.0f}\n")
+                    self._add_text(f"  Truck Special:            {inp_traffic.truck_special:,.0f}\n\n")
+                    
+                    self._add_text("Summary Statistics:\n", "subheading")
+                    self._add_text(f"  Total AADT:               ", "result")
+                    self._add_text(f"{res.total_aadt:,.0f} vehicles/day\n", "result")
+                    self._add_text(f"  Heavy Vehicle Mix:        ", "result")
+                    self._add_text(f"{res.heavy_vehicle_mix_pt:.2f}%\n", "result")
+                    
+                    # Add emission volumes if available
+                    if hasattr(res, 'total_emissions') and res.total_emissions:
+                        self._add_text(f"\nTotal Emissions:\n", "subheading")
+                        for pollutant, value in res.total_emissions.items():
+                            self._add_text(f"  {pollutant}: {value:.4f} g/km·hr\n")
+                    
+                    self._add_text("\n")
+
+        # Header
+        self._add_text("="*80 + "\n", "heading")
+        self._add_text("TUNNEL VENTILATION CALCULATION RESULTS (BOTH DIRECTIONS)\n", "heading")
+        self._add_text("="*80 + "\n\n", "heading")
+
+        _render_full_calc(f"DIRECTION: {dir1_label} → {dir2_label}", inp1, res1, traffic_logic_dir1)
+        _render_full_calc(f"DIRECTION: {dir2_label} → {dir1_label}", inp2, res2, traffic_logic_dir2)
+
+        self.text_widget.config(state="disabled")
+
     def _add_text(self, text, tag=None):
         """Helper to add text with optional tag."""
         if tag:
@@ -606,23 +1023,24 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"Ar: {info.get('Ar', 0)} m², Lp: {info.get('Lp', 0)} m, Dr: {info.get('Dr', 0):.4f} m\n\n")
         self.text_widget.config(state="disabled")
     
-    def append_traffic_summary(self, traffic_logic_masan_jinju, traffic_logic_jinju_masan):
+    def append_traffic_summary(self, traffic_logic_masan_jinju, traffic_logic_jinju_masan, volume_tab=None):
         """Append traffic estimation summary for both directions."""
         self.text_widget.config(state="normal")
         self._add_text("\n" + "-"*80 + "\n", "heading")
         self._add_text("ESTIMATED TRAFFIC VOLUME SUMMARY\n", "heading")
         self._add_text("-"*80 + "\n\n")
         
-        # Display Direction 1 (dynamically get names from parent)
+        # Get dynamic direction names from volume tab
         dir1_name = "Masan"
         dir2_name = "Jinju"
-        try:
-            # Try to get dynamic names from volume tab
-            if hasattr(self.master, 'volume_tab'):
-                dir1_name = self.master.volume_tab.dir1Name.get()
-                dir2_name = self.master.volume_tab.dir2Name.get()
-        except:
-            pass
+        if volume_tab:
+            try:
+                dir1_name = volume_tab.dir1Name.get()
+                dir2_name = volume_tab.dir2Name.get()
+            except:
+                pass
+        
+        # Display Direction 1 (dir1_name → dir2_name)
         self._add_text(f"Direction: {dir1_name} → {dir2_name}\n", "subheading")
         self._add_text("-"*60 + "\n")
         if not traffic_logic_masan_jinju.batch:
@@ -649,8 +1067,8 @@ class ResultsTab(ttk.Frame):
                 self._add_text(f"  Heavy Vehicle Mix:        ", "result")
                 self._add_text(f"{res.heavy_vehicle_mix_pt:.2f}%\n\n", "result")
         
-        # Display Jinju → Masan
-        self._add_text(f"\nDirection: {dir2_name} → {dir1_name}\n", "subheading")
+        # Display Direction 2 (dir2_name → dir1_name)
+        self._add_text(f"Direction: {dir2_name} → {dir1_name}\n", "subheading")
         self._add_text("-"*60 + "\n")
         if not traffic_logic_jinju_masan.batch:
             self._add_text("No traffic data computed.\n\n")
@@ -916,13 +1334,12 @@ class TunnelGeometry(ttk.LabelFrame):
 
 
 class SummaryRow(ttk.Frame):
-    """Displays provided stats and traffic dictionaries in two rows and allows refresh."""
+    """Displays provided stats dictionary in one row and allows refresh."""
     def __init__(self, master, stats, traffic, t, **kwargs):
         super().__init__(master, **kwargs)
         self._stats = stats
         self._traffic = traffic
         self._stat_labels = {}
-        self._traffic_labels = {}
 
         col = 0
         ttk.Label(self, text="Stats:", font=("Arial", 10, "bold")).grid(row=0, column=col, sticky="w", padx=4, pady=2)
@@ -933,25 +1350,12 @@ class SummaryRow(ttk.Frame):
             self._stat_labels[key] = lbl
             col += 1
 
-        ttk.Label(self, text="Traffic:", font=("Arial", 10, "bold")).grid(row=1, column=0, sticky="w", padx=4, pady=2)
-        col = 1
-        for key, value in self._traffic.items():
-            lbl = ttk.Label(self, text=f"{key}: {value}")
-            lbl.grid(row=1, column=col, sticky="w", padx=4, pady=2)
-            self._traffic_labels[key] = lbl
-            col += 1
-
     def set_data(self, stats=None, traffic=None):
         if stats is not None:
             self._stats.update(stats)
             for key, value in stats.items():
                 if key in self._stat_labels:
                     self._stat_labels[key].configure(text=f"{key}: {value}")
-        if traffic is not None:
-            self._traffic.update(traffic)
-            for key, value in traffic.items():
-                if key in self._traffic_labels:
-                    self._traffic_labels[key].configure(text=f"{key}: {value}")
 
 
 class VentilationVolumeTab(ttk.Frame):
@@ -1180,6 +1584,9 @@ class VentilationVolumeTab(ttk.Frame):
 
         # Add traffic estimation panel after direction cards
         self._add_traffic_estimation_panel(scrollable_frame)
+        
+        # Add merged FIV Correction Coefficient Table Panel (FROM on top, TO below)
+        self._add_fiv_correction_panel(scrollable_frame)
 
     def _update_summary(self, direction):
         if direction == "MasanToJinju":
@@ -1321,6 +1728,323 @@ class VentilationVolumeTab(ttk.Frame):
             self.traffic_rows_jinju_masan
         )
 
+    def _add_fiv_correction_panel(self, parent):
+        """Add merged FIV Correction Coefficient Table panel with FROM on top and TO below."""
+        # Create FIV panel frame
+        fiv_panel_frame = ttk.LabelFrame(parent, text="속도경사보정계수 [ fiv ]", padding="10 10 10 10")
+        fiv_panel_frame.pack(fill="x", padx=15, pady=10)
+        
+        # Control row with toggle button
+        control_frame = ttk.Frame(fiv_panel_frame)
+        control_frame.pack(fill="x", padx=5, pady=2)
+        
+        # Toggle button for FIV table visibility
+        fiv_visible = tk.BooleanVar(value=False)
+        toggle_btn = ttk.Button(
+            control_frame,
+            text="▶ Show FIV Table",
+            command=lambda: self._toggle_fiv_table(fiv_visible, toggle_btn, fiv_table_frame)
+        )
+        toggle_btn.pack(side="left", padx=(0, 10))
+        
+        # Pollutant selector
+        ttk.Label(control_frame, text="Pollutant:").pack(side="left", padx=(0, 5))
+        pollutant_var = tk.StringVar(value="PM")
+        
+        # Define complete option mapping for all pollutants and vehicle types
+        # Format: {pollutant: {display_label: (from_table_id, to_table_id)}}
+        fiv_complete_map = {
+            "PM": {
+                "휘발유 승용차": ("(1.1-1)", "(1.2-1)"),
+                "경유 승용차": ("(1.1-2)", "(1.2-2)"),
+                "소형버스, 소형트럭": ("(1.1-3)", "(1.2-3)"),
+                "대형버스, 중형, 대형, 특수트럭": ("(1.1-4)", "(1.2-4)"),
+            },
+            "CO": {
+                "휘발유 승용차": ("(2.1-1)", "(2.2-1)"),
+                "경유 승용차": ("(2.1-2)", "(2.2-2)"),
+                "소형버스, 소형트럭": ("(2.1-3)", "(2.2-3)"),
+                "대형버스, 중형, 대형, 특수트럭": ("(2.1-4)", "(2.2-4)"),
+            },
+            "NOx": {
+                "휘발유 승용차": ("(3.1-1)", "(3.2-1)"),
+                "경유 승용차": ("(3.1-2)", "(3.2-2)"),
+                "소형버스, 소형트럭": ("(3.1-3)", "(3.2-3)"),
+                "대형버스, 중형, 대형, 특수트럭": ("(3.1-4)", "(3.2-4)"),
+            }
+        }
+        
+        pollutant_combo = ttk.Combobox(
+            control_frame,
+            textvariable=pollutant_var,
+            values=["PM", "CO", "NOx"],
+            state="readonly",
+            width=10,
+        )
+        pollutant_combo.pack(side="left", padx=(0, 15))
+        
+        # FIV option selector
+        ttk.Label(control_frame, text="Vehicle Type:").pack(side="left", padx=(0, 5))
+        fiv_option_var = tk.StringVar(value="휘발유 승용차")
+        fiv_option_combo = ttk.Combobox(
+            control_frame,
+            textvariable=fiv_option_var,
+            values=list(fiv_complete_map["PM"].keys()),
+            state="readonly",
+            width=40,
+        )
+        fiv_option_combo.pack(side="left", padx=(0, 10))
+        
+        # Internal variables for pollutant and table selection
+        from_table_var = tk.StringVar(value="(1.1-1)")
+        to_table_var = tk.StringVar(value="(1.2-1)")
+        
+        # Collapsible FIV table frame
+        fiv_table_frame = ttk.Frame(fiv_panel_frame)
+        # Don't pack initially (hidden by default)
+        
+        speed_columns = ["10", "20", "30", "40", "50", "60", "70", "80"]
+        
+        # ===== FROM Table (Top) =====
+        # Header row
+        ttk.Label(fiv_table_frame, text="구분(km/h)", font=("Arial", 9, "bold"), 
+                 borderwidth=1, relief="solid", padding=5, background="#e0e0e0").grid(
+                     row=0, column=0, columnspan=2, sticky="nsew")
+        
+        # Speed headers
+        for col, speed in enumerate(speed_columns, start=2):
+            ttk.Label(fiv_table_frame, text=speed, font=("Arial", 9, "bold"), 
+                     borderwidth=1, relief="solid", padding=5, background="#e0e0e0").grid(
+                         row=0, column=col, sticky="nsew")
+        
+        # FROM direction label (merged for 10 rows)
+        from_location = "FROM"
+        merged_from = ttk.Label(fiv_table_frame, text=from_location, font=("Arial", 9), 
+                               borderwidth=1, relief="solid", padding=5, background="#f0f0f0")
+        merged_from.grid(row=1, column=0, rowspan=10, sticky="nsew")
+        
+        # FROM section rows with section labels in column 1
+        section_list = ["1구간", "2구간", "3구간", "4구간", "5구간", "6구간", "7구간", "8구간", "9구간", "10구간"]
+        self.fiv_from_data_cells = {}
+        
+        for row_idx, section in enumerate(section_list, start=1):
+            # Section column
+            section_label = ttk.Label(fiv_table_frame, text=section, font=("Arial", 9), 
+                                      borderwidth=1, relief="solid", padding=5, background="#f9f9f9")
+            section_label.grid(row=row_idx, column=1, sticky="nsew")
+            
+            # Data cells for speeds
+            for col in range(2, len(speed_columns) + 2):
+                cell = ttk.Label(fiv_table_frame, text="0.500", borderwidth=1, 
+                               relief="solid", padding=5, background="white")
+                cell.grid(row=row_idx, column=col, sticky="nsew")
+                self.fiv_from_data_cells[(row_idx, col)] = cell
+        
+        # Separator row
+        separator = ttk.Separator(fiv_table_frame, orient="horizontal")
+        separator.grid(row=11, column=0, columnspan=10, sticky="ew", pady=5)
+        
+        # ===== TO Table (Bottom) =====
+        # Header row for TO table
+        ttk.Label(fiv_table_frame, text="구분(km/h)", font=("Arial", 9, "bold"), 
+                 borderwidth=1, relief="solid", padding=5, background="#e0e0e0").grid(
+                     row=12, column=0, columnspan=2, sticky="nsew")
+        
+        # Speed headers for TO
+        for col, speed in enumerate(speed_columns, start=2):
+            ttk.Label(fiv_table_frame, text=speed, font=("Arial", 9, "bold"), 
+                     borderwidth=1, relief="solid", padding=5, background="#e0e0e0").grid(
+                         row=12, column=col, sticky="nsew")
+        
+        # TO direction label (merged for 10 rows)
+        to_location = "TO"
+        merged_to = ttk.Label(fiv_table_frame, text=to_location, font=("Arial", 9), 
+                             borderwidth=1, relief="solid", padding=5, background="#f0f0f0")
+        merged_to.grid(row=13, column=0, rowspan=10, sticky="nsew")
+        
+        # TO section rows with section labels in column 1
+        self.fiv_to_data_cells = {}
+        
+        for row_offset, section in enumerate(section_list):
+            row_num = 13 + row_offset
+            # Section column
+            section_label = ttk.Label(fiv_table_frame, text=section, font=("Arial", 9), 
+                                      borderwidth=1, relief="solid", padding=5, background="#f9f9f9")
+            section_label.grid(row=row_num, column=1, sticky="nsew")
+            
+            # Data cells for speeds
+            for col in range(2, len(speed_columns) + 2):
+                cell = ttk.Label(fiv_table_frame, text="0.500", borderwidth=1, 
+                               relief="solid", padding=5, background="white")
+                cell.grid(row=row_num, column=col, sticky="nsew")
+                self.fiv_to_data_cells[(row_num, col)] = cell
+        
+        # Callbacks to update direction labels
+        def update_from_label(*args):
+            try:
+                if hasattr(self, 'dir1Name'):
+                    merged_from.config(text=self.dir1Name.get())
+            except:
+                pass
+        
+        def update_to_label(*args):
+            try:
+                if hasattr(self, 'dir2Name'):
+                    merged_to.config(text=self.dir2Name.get())
+            except:
+                pass
+        
+        # Callback to update vehicle type options when pollutant changes
+        def on_pollutant_changed(*args):
+            """Update vehicle type options when pollutant is changed."""
+            selected_pollutant = pollutant_var.get()
+            vehicle_options = list(fiv_complete_map[selected_pollutant].keys())
+            fiv_option_combo['values'] = vehicle_options
+            fiv_option_var.set(vehicle_options[0])  # Set to first option
+        
+        # Callback to update table selection based on FIV option
+        def on_fiv_option_changed(*args):
+            """Update table IDs based on selected FIV option."""
+            selected_option = fiv_option_var.get()
+            selected_pollutant = pollutant_var.get()
+            if selected_pollutant in fiv_complete_map and selected_option in fiv_complete_map[selected_pollutant]:
+                from_table, to_table = fiv_complete_map[selected_pollutant][selected_option]
+                from_table_var.set(from_table)
+                to_table_var.set(to_table)
+        
+        # Register callbacks
+        if hasattr(self, 'dir1Name'):
+            self.dir1Name.trace_add("write", update_from_label)
+        if hasattr(self, 'dir2Name'):
+            self.dir2Name.trace_add("write", update_to_label)
+        
+        # Store references
+        self.fiv_table_frame = fiv_table_frame
+        self.fiv_visible = fiv_visible
+        self.fiv_merged_from_label = merged_from
+        self.fiv_merged_to_label = merged_to
+        self.fiv_option_var = fiv_option_var
+        self.fiv_complete_map = fiv_complete_map
+        self.fiv_pollutant_var = pollutant_var
+        self.fiv_from_table_var = from_table_var
+        self.fiv_to_table_var = to_table_var
+        self.fiv_toggle_btn = toggle_btn
+        self.fiv_option_combo = fiv_option_combo
+        
+        # Add callbacks for pollutant, FIV option and table selection changes
+        pollutant_var.trace_add("write", on_pollutant_changed)
+        fiv_option_var.trace_add("write", on_fiv_option_changed)
+        from_table_var.trace_add("write", lambda *args: self._populate_fiv_tables())
+        to_table_var.trace_add("write", lambda *args: self._populate_fiv_tables())
+
+        # Load default data on initialization
+        self._populate_fiv_tables()
+    
+    def _populate_fiv_tables(self):
+        """Populate both FROM and TO FIV tables with data from JSON."""
+        try:
+            from speed_grade_tables import get_table_override
+            
+            # Get selected values
+            pollutant = self.fiv_pollutant_var.get()
+            from_table_id = self.fiv_from_table_var.get()
+            to_table_id = self.fiv_to_table_var.get()
+            
+            # Get data for the pollutant
+            data = get_table_override(pollutant)
+            if not data:
+                return
+            
+            # Speed columns in the FIV table
+            speed_columns = [10, 20, 30, 40, 50, 60, 70, 80]
+            segment_list = ["1구간", "2구간", "3구간", "4구간", "5구간", "6구간", "7구간", "8구간", "9구간", "10구간"]
+            
+            # Populate FROM table
+            self._populate_single_fiv_table(
+                data, from_table_id, speed_columns, segment_list,
+                self.fiv_from_data_cells, is_from=True
+            )
+            
+            # Populate TO table
+            self._populate_single_fiv_table(
+                data, to_table_id, speed_columns, segment_list,
+                self.fiv_to_data_cells, is_from=False
+            )
+        except Exception as e:
+            print(f"Error populating FIV tables: {e}")
+    
+    def _populate_single_fiv_table(self, data, table_id, speed_columns, segment_list, data_cells, is_from=True):
+        """Populate a single FIV table (FROM or TO) with data from JSON."""
+        try:
+            # Find the matching segment table in JSON
+            segment_tables = data.get("segment_speed_grade_tables", [])
+            selected_table = None
+            
+            for table in segment_tables:
+                if table.get("table_id") == table_id:
+                    selected_table = table
+                    break
+            
+            if not selected_table:
+                return
+            
+            # Get rows from the table
+            rows = selected_table.get("rows", [])
+            
+            # Create a mapping of segment to row data for easier lookup
+            segment_data_map = {}
+            for row in rows:
+                segment = row.get("segment", "")
+                segment_data_map[segment] = row
+            
+            # Determine row offset based on table type
+            row_offset = 0 if is_from else 12  # FROM starts at row 1, TO starts at row 13
+            
+            # Populate cells for each segment and speed
+            for seg_idx, segment in enumerate(segment_list, start=1):
+                if segment not in segment_data_map:
+                    continue
+                
+                row_data = segment_data_map[segment]
+                values = row_data.get("values", {})
+                
+                # Calculate actual row number for the grid
+                actual_row = row_offset + seg_idx
+                
+                # For each speed column
+                for col_idx, speed in enumerate(speed_columns, start=2):
+                    # Get the value from JSON
+                    value = values.get(str(speed), "0.500")
+                    
+                    # Format the value
+                    if isinstance(value, (int, float)):
+                        value_str = f"{value:.3f}"
+                    else:
+                        value_str = str(value)
+                    
+                    # Update the cell in the grid
+                    cell_key = (actual_row, col_idx)
+                    if cell_key in data_cells:
+                        data_cells[cell_key].config(text=value_str)
+        except Exception as e:
+            print(f"Error populating single FIV table: {e}")
+
+    def _toggle_fiv_table(self, visible_var, toggle_btn, table_frame):
+        """Toggle visibility of FIV correction table."""
+        is_visible = visible_var.get()
+        
+        if is_visible:
+            # Hide table
+            table_frame.pack_forget()
+            toggle_btn.config(text="▶ Show FIV Table")
+            visible_var.set(False)
+        else:
+            # Show table
+            table_frame.pack(fill="x", pady=5)
+            toggle_btn.config(text="▼ Hide FIV Table")
+            visible_var.set(True)
+            # Populate table data here if needed
+    
     def _create_direction_traffic_card(self, parent, direction_title, direction_key, traffic_logic, traffic_rows_list):
         """Create a traffic estimation card for a specific direction."""
         # Create card for traffic estimation
@@ -2088,6 +2812,16 @@ class VentilationVolumeTab(ttk.Frame):
         text_widget.yview_moveto(0.0)
 
 
+class DataCatalog:
+    """Placeholder for Data Catalog class."""
+    pass
+
+
+class TableViewer:
+    """Placeholder for Table Viewer class."""
+    pass
+
+
 class VentilationVolumeWindow(tk.Toplevel):
     """Window implementing the 'Calculate Ventilation Volume' placeholder layout."""
     def __init__(self, parent):
@@ -2248,74 +2982,501 @@ class VentilationVolumeWindow(tk.Toplevel):
         ).pack(fill="x", pady=4)
         SummaryRow(card2, self.statsJinjuToMasan, self.trafficJinjuToMasan, t).pack(fill="x", pady=4)
 
-
-# ----------------------------
-# 4) Main menu window
-# ----------------------------
-class MainApp(tk.Tk):
-    """Main application with tabbed interface."""
-    def __init__(self):
-        super().__init__()
-        self.title("BEC Computational System - Main Menu")
-        self.geometry("750x800")
-        
-        self._build_interface()
-
-    def _build_interface(self):
-        # Title
-        title_frame = ttk.Frame(self)
-        title_frame.pack(fill="x", pady=10)
-        
-        # Center the titles
-        center_titles = ttk.Frame(title_frame)
-        center_titles.pack(expand=True)
-        title_label = ttk.Label(center_titles, text="BEC Computational System", font=("Arial", 16, "bold"), foreground="#004080")
-        title_label.pack()
-        subtitle_label = ttk.Label(center_titles, text="Use the tab below for appropriate calculations", font=("Arial", 10), foreground="#666666")
-        subtitle_label.pack(pady=2)
-
-        # Compute Summary button positioned absolutely on the right
-        self.compute_btn = ttk.Button(title_frame, text="Compute Summary", command=self._compute_summary)
-        self.compute_btn.place(relx=1.0, rely=0.5, anchor="e", x=-10)
-
-        # Separator
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=20, pady=5)
-
-        # Create notebook for tabs
-        notebook = ttk.Notebook(self)
-        notebook.pack(fill="both", expand=True, padx=10, pady=5)
-
-        # Create result tab first
-        result_tab = ResultsTab(notebook)
-
-        # First tab: Calculate Ventilation Volume
-        self.ventilation_volume_tab = VentilationVolumeTab(notebook)
-        notebook.add(self.ventilation_volume_tab, text="Calculate Ventilation Volume")
-
-        # Second tab: Number of Jet Fan (pass result_tab and volume_tab references)
-        self.jet_fan_tab = JetFanTab(notebook, result_tab=result_tab, volume_tab=self.ventilation_volume_tab)
-        notebook.add(self.jet_fan_tab, text="Number of Jet Fan")
-
-        # Results tab
-        self.results_tab = result_tab
-        notebook.add(self.results_tab, text="Results (summary)")
-
-    def _compute_summary(self):
-        # Compute Jet Fan results and publish
-        inp, results = self.jet_fan_tab.compute_and_publish()
-        # Append Ventilation Volume summaries for both directions
-        infos = [
-            self.ventilation_volume_tab.get_volume_summary("MasanToJinju"),
-            self.ventilation_volume_tab.get_volume_summary("JinjuToMasan"),
-        ]
-        self.results_tab.append_volume_summary(infos)
-        # Append Traffic Estimation summary for both directions
-        self.results_tab.append_traffic_summary(
-            self.ventilation_volume_tab.traffic_logic_masan_jinju,
-            self.ventilation_volume_tab.traffic_logic_jinju_masan
-        )
+        # Pack main frame
+        main_frame.pack(fill="both", expand=True)
 
 
 if __name__ == "__main__":
-    app = MainApp()
-    app.mainloop()
+    # Load JSON data from Data folder into speed_grade_tables
+    data_folder = Path(__file__).parent / "Data"
+    
+    # Load PM, CO, NOx JSON files
+    json_files = {
+        "PM": data_folder / "pmSpeedGradeFiv.json",
+        "CO": data_folder / "coSpeedGradeFiv.json",
+        "NOx": data_folder / "noxSpeedGradeFiv.json"
+    }
+    
+    for pollutant, file_path in json_files.items():
+        if file_path.exists():
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    set_table_override(pollutant, data)
+                    print(f"Loaded {pollutant} data from {file_path.name}")
+            except Exception as e:
+                print(f"Error loading {pollutant} data: {e}")
+        else:
+            print(f"Warning: {file_path.name} not found")
+    
+    root = tk.Tk()
+    root.title("Jet Fan Calculator")
+    root.geometry("1000x800")
+    
+    # Create a button frame at the top
+    button_frame = ttk.Frame(root)
+    button_frame.pack(fill="x", padx=10, pady=10)
+    
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill="both", expand=True)
+
+    # Create result tab first
+    result_tab = ResultsTab(notebook)
+    
+    # Add Ventilation Volume tab first
+    ventilation_volume_tab = VentilationVolumeTab(notebook)
+    notebook.add(ventilation_volume_tab, text="Calculate Ventilation")
+    result_tab.volume_tab = ventilation_volume_tab
+
+    # Second tab: Number of Jet Fan (pass result_tab and volume_tab references)
+    jet_fan_tab = JetFanTab(notebook, result_tab=result_tab, volume_tab=ventilation_volume_tab)
+    notebook.add(jet_fan_tab, text="Number of Jet Fan")
+
+    # Results tab
+    notebook.add(result_tab, text="Results (summary)")
+    
+    # Add buttons to button frame
+    def compute_summary():
+        """Compute and display summary in results tab."""
+        inp1, results1, inp2, results2 = jet_fan_tab.compute_and_publish()
+        dir1_label = "FROM"
+        dir2_label = "TO"
+        try:
+            dir1_label = ventilation_volume_tab.dir1Name.get()
+            dir2_label = ventilation_volume_tab.dir2Name.get()
+        except Exception:
+            pass
+        if inp1 and results1 and inp2 and results2:
+            # Pass traffic logic data to display_results_dual
+            result_tab.display_results_dual(
+                dir1_label, dir2_label, 
+                inp1, results1, inp2, results2,
+                ventilation_volume_tab.traffic_logic_masan_jinju,
+                ventilation_volume_tab.traffic_logic_jinju_masan
+            )
+        # Append Ventilation Volume summaries for both directions
+        infos = [
+            ventilation_volume_tab.get_volume_summary("MasanToJinju"),
+            ventilation_volume_tab.get_volume_summary("JinjuToMasan"),
+        ]
+        result_tab.append_volume_summary(infos)
+        # Note: Traffic summary is now integrated into display_results_dual
+        # Switch to Results tab
+        notebook.select(2)
+    
+    def show_data_catalog():
+        """Show Data Catalog dialog with comprehensive pollutant table viewer."""
+        from data_catalog import DataCatalog, DATA_OPTIONS
+        from table_viewer import TableViewer
+        from speed_grade_tables import get_all_overrides
+        
+        dialog = tk.Toplevel(root)
+        dialog.title("Data Catalog - Pollutant Tables")
+        dialog.geometry("1200x800")
+
+        # Tabbed catalog; FIV tables live on their own tab
+        catalog_notebook = ttk.Notebook(dialog)
+        catalog_notebook.pack(fill="both", expand=True)
+
+        fiv_tab = ttk.Frame(catalog_notebook)
+        catalog_notebook.add(fiv_tab, text="Speed-Grade Correction Factor (fiv)")
+
+        diesel_tab = ttk.Frame(catalog_notebook)
+        catalog_notebook.add(diesel_tab, text="Standard application value of smoke emission")
+        
+        main_frame = ttk.Frame(fiv_tab, padding="10 10 10 10")
+        main_frame.pack(fill="both", expand=True)
+
+        # --- Diesel truck/bus qo* static table tab ---
+        diesel_frame = ttk.Frame(diesel_tab, padding="10 10 10 10")
+        diesel_frame.pack(fill="both", expand=True)
+
+        # Title row spanning all columns
+        table_container = ttk.Frame(diesel_frame)
+        table_container.pack(anchor="w")
+        for col in range(6):
+            table_container.columnconfigure(col, weight=1)
+
+        ttk.Label(
+            table_container,
+            text="Truck, Bus with diesel motors (m > 3.5 ton)",
+            font=("Arial", 10, "bold"),
+            borderwidth=1,
+            relief="solid",
+            padding=5,
+            background="#e0e0e0",
+        ).grid(row=0, column=0, columnspan=6, sticky="nsew")
+
+        # Multi-row header
+        ttk.Label(
+            table_container,
+            text="Emission Law",
+            font=("Arial", 9, "bold"),
+            borderwidth=1,
+            relief="solid",
+            padding=5,
+            background="#e0e0e0",
+        ).grid(row=1, column=0, rowspan=4, sticky="nsew")
+
+        ttk.Label(
+            table_container,
+            text="Control",
+            font=("Arial", 9, "bold"),
+            borderwidth=1,
+            relief="solid",
+            padding=5,
+            background="#e0e0e0",
+        ).grid(row=1, column=1, rowspan=4, sticky="nsew")
+
+        ttk.Label(
+            table_container,
+            text="qo* (m3/h·veh)   V = 60 km/h",
+            font=("Arial", 9, "bold"),
+            borderwidth=1,
+            relief="solid",
+            padding=5,
+            background="#e0e0e0",
+        ).grid(row=1, column=2, columnspan=4, sticky="nsew")
+
+        ttk.Label(
+            table_container,
+            text="Truck weight (ton)",
+            font=("Arial", 9, "bold"),
+            borderwidth=1,
+            relief="solid",
+            padding=5,
+            background="#e0e0e0",
+        ).grid(row=2, column=2, columnspan=4, sticky="nsew")
+
+        for c_idx, speed in enumerate(["5", "10", "20", "40"], start=2):
+            ttk.Label(
+                table_container,
+                text=speed,
+                font=("Arial", 9, "bold"),
+                borderwidth=1,
+                relief="solid",
+                padding=5,
+                background="#e0e0e0",
+            ).grid(row=3, column=c_idx, sticky="nsew")
+
+        for c_idx, rng in enumerate(["80-130", "160-250", "300-400", "400-600"], start=2):
+            ttk.Label(
+                table_container,
+                text=rng,
+                font=("Arial", 9, "bold"),
+                borderwidth=1,
+                relief="solid",
+                padding=5,
+                background="#f2f2f2",
+            ).grid(row=4, column=c_idx, sticky="nsew")
+
+        rows = [
+            ("한국 육성제 기준", "no", 72, 160, 235, 275),
+            ("EEC R 49 + 24", "no", 80, 160, 240, 280),
+            ("EEC R 49 + 24 EEC 88/77", "yes", 65, 155, 220, 240),
+            ("US Transient 88", "yes", 50, 100, 150, 200),
+            ("US Transient 91", "yes", 30, 60, 100, 140),
+            ("US Transient 94", "yes", 20, 40, 70, 110),
+        ]
+
+        for r_idx, (law, control, v5, v10, v20, v40) in enumerate(rows, start=5):
+            row_bg = "#ffffff" if (r_idx % 2 == 1) else "#f7f7f7"
+            ttk.Label(
+                table_container,
+                text=law,
+                borderwidth=1,
+                relief="solid",
+                padding=5,
+                background=row_bg,
+                anchor="w",
+            ).grid(row=r_idx, column=0, sticky="nsew")
+            ttk.Label(
+                table_container,
+                text=control,
+                borderwidth=1,
+                relief="solid",
+                padding=5,
+                background=row_bg,
+                anchor="center",
+            ).grid(row=r_idx, column=1, sticky="nsew")
+
+            for c_idx, val in enumerate([v5, v10, v20, v40], start=2):
+                ttk.Label(
+                    table_container,
+                    text=str(val),
+                    borderwidth=1,
+                    relief="solid",
+                    padding=5,
+                    background=row_bg,
+                    anchor="center",
+                ).grid(row=r_idx, column=c_idx, sticky="nsew")
+        
+        # Title
+        title_label = ttk.Label(main_frame, text="Speed-Grade Correction Factor Tables (fiv)", 
+                    font=("Arial", 14, "bold"))
+        title_label.pack(pady=(0, 10))
+        
+        # Control panel
+        control_frame = ttk.Frame(main_frame)
+        control_frame.pack(fill="x", pady=10)
+        
+        # Pollutant selector
+        ttk.Label(control_frame, text="Select Pollutant:").pack(side="left", padx=5)
+        pollutant_var = tk.StringVar(value="PM")
+        pollutant_combo = ttk.Combobox(
+            control_frame,
+            textvariable=pollutant_var,
+            values=["PM", "CO", "NOx"],
+            state="readonly",
+            width=10
+        )
+        pollutant_combo.pack(side="left", padx=5)
+        
+        # Table selector
+        ttk.Label(control_frame, text="Table:").pack(side="left", padx=(20, 5))
+        table_var = tk.StringVar(value="")
+        table_combo = ttk.Combobox(
+            control_frame,
+            textvariable=table_var,
+            values=[],
+            state="readonly",
+            width=40
+        )
+        table_combo.pack(side="left", padx=5)
+        
+        # Import button
+        def import_all():
+            catalog = DataCatalog()
+            catalog.import_option({"pollutant": "ALL", "file": "all"})
+            status_label.config(text="✓ All pollutants imported successfully")
+            load_table_list()
+        
+        ttk.Button(control_frame, text="Import All Pollutants", 
+                  command=import_all).pack(side="left", padx=20)
+        
+        # Status label
+        status_label = ttk.Label(control_frame, text="", foreground="green")
+        status_label.pack(side="left", padx=10)
+        
+        # Table display frame with scrollbar
+        table_frame = ttk.Frame(main_frame)
+        table_frame.pack(fill="both", expand=True, pady=10)
+        
+        # Create canvas and scrollbar
+        canvas = tk.Canvas(table_frame, bg="white")
+        v_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=canvas.yview)
+        h_scrollbar = ttk.Scrollbar(table_frame, orient="horizontal", command=canvas.xview)
+        
+        scrollable_frame = ttk.Frame(canvas)
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        v_scrollbar.pack(side="right", fill="y")
+        h_scrollbar.pack(side="bottom", fill="x")
+        canvas.pack(side="left", fill="both", expand=True)
+        
+        def load_table_list():
+            """Load available tables for selected pollutant."""
+            pollutant = pollutant_var.get()
+            all_overrides = get_all_overrides()
+            
+            if pollutant in all_overrides:
+                data = all_overrides[pollutant]
+                table_options = []
+                
+                # Add base speed-grade tables
+                base_tables = data.get("base_speed_grade_tables", [])
+                for t in base_tables:
+                    table_options.append(f"{t['table_id']} - {t['title']}")
+                
+                # Add segment speed-grade tables
+                segment_tables = data.get("segment_speed_grade_tables", [])
+                for t in segment_tables:
+                    table_options.append(f"{t['table_id']} - {t['title']}")
+                
+                table_combo['values'] = table_options
+                if table_options:
+                    table_var.set(table_options[0])
+                    display_table()
+            else:
+                table_combo['values'] = []
+                table_var.set("")
+                clear_table_display()
+        
+        def clear_table_display():
+            """Clear the table display."""
+            for widget in scrollable_frame.winfo_children():
+                widget.destroy()
+        
+        def display_table():
+            """Display the selected table in grid format."""
+            clear_table_display()
+            
+            pollutant = pollutant_var.get()
+            table_selection = table_var.get()
+            
+            if not table_selection:
+                return
+            
+            all_overrides = get_all_overrides()
+            if pollutant not in all_overrides:
+                return
+            
+            data = all_overrides[pollutant]
+            table_id = table_selection.split(" - ")[0]
+            
+            # Find the selected table in base_speed_grade_tables
+            selected_table = None
+            table_type = None
+            
+            for table in data.get("base_speed_grade_tables", []):
+                if table.get("table_id") == table_id:
+                    selected_table = table
+                    table_type = "base"
+                    break
+            
+            # If not found, check segment_speed_grade_tables
+            if not selected_table:
+                for table in data.get("segment_speed_grade_tables", []):
+                    if table.get("table_id") == table_id:
+                        selected_table = table
+                        table_type = "segment"
+                        break
+            
+            if not selected_table:
+                return
+            
+            # Display table title
+            title = ttk.Label(scrollable_frame, text=selected_table.get("title", ""), 
+                            font=("Arial", 12, "bold"))
+            title.grid(row=0, column=0, columnspan=20, pady=10, sticky="w")
+            
+            if table_type == "base":
+                # Display base speed-grade table (speed x grade)
+                display_base_table(selected_table)
+            else:
+                # Display segment speed-grade table (segment x speed)
+                display_segment_table(selected_table)
+        
+        def display_base_table(selected_table):
+            """Display base speed-grade table format."""
+            # Get grades and rows
+            grades = selected_table.get("grades", [])
+            rows = selected_table.get("rows", [])
+            
+            # Create headers
+            row_header = selected_table.get("row_header", "Speed")
+            col_header = selected_table.get("column_header", "Grade")
+            
+            # Header corner cell
+            header_label = ttk.Label(scrollable_frame, text=f"{row_header}\\{col_header}", 
+                                    font=("Arial", 9, "bold"), borderwidth=1, relief="solid", 
+                                    padding=5, background="#e0e0e0")
+            header_label.grid(row=1, column=0, sticky="nsew")
+            
+            # Column headers (grades)
+            for col_idx, grade in enumerate(grades, start=1):
+                grade_label = ttk.Label(scrollable_frame, text=str(grade), 
+                                       font=("Arial", 9, "bold"), borderwidth=1, 
+                                       relief="solid", padding=5, background="#e0e0e0")
+                grade_label.grid(row=1, column=col_idx, sticky="nsew")
+            
+            # Data rows
+            for row_idx, row_data in enumerate(rows, start=2):
+                speed = row_data.get("speed_kmh", 0)
+                values = row_data.get("values", {})
+                
+                # Row header (speed)
+                speed_label = ttk.Label(scrollable_frame, text=str(speed), 
+                                       font=("Arial", 9, "bold"), borderwidth=1, 
+                                       relief="solid", padding=5, background="#f0f0f0")
+                speed_label.grid(row=row_idx, column=0, sticky="nsew")
+                
+                # Data cells
+                for col_idx, grade in enumerate(grades, start=1):
+                    value = values.get(str(grade), "-")
+                    if isinstance(value, (int, float)):
+                        value = f"{value:.3f}"
+                    
+                    cell_label = ttk.Label(scrollable_frame, text=str(value), 
+                                          borderwidth=1, relief="solid", padding=5,
+                                          background="white")
+                    cell_label.grid(row=row_idx, column=col_idx, sticky="nsew")
+        
+        def display_segment_table(selected_table):
+            """Display segment speed-grade table format."""
+            # Get speeds and rows
+            speeds = selected_table.get("speeds", [])
+            rows = selected_table.get("rows", [])
+            
+            # Create headers
+            row_header = selected_table.get("row_header", "Segment")
+            col_header = "Speed (km/h)"
+            
+            # Header row 1: Merged cell for row_header and "Grade"
+            header_label = ttk.Label(scrollable_frame, text=row_header, 
+                                    font=("Arial", 9, "bold"), borderwidth=1, relief="solid", 
+                                    padding=5, background="#e0e0e0")
+            header_label.grid(row=1, column=0, sticky="nsew")
+            
+            grade_label = ttk.Label(scrollable_frame, text="Grade (%)", 
+                                   font=("Arial", 9, "bold"), borderwidth=1, relief="solid", 
+                                   padding=5, background="#e0e0e0")
+            grade_label.grid(row=1, column=1, sticky="nsew")
+            
+            # Column headers (speeds)
+            for col_idx, speed in enumerate(speeds, start=2):
+                speed_label = ttk.Label(scrollable_frame, text=str(speed), 
+                                       font=("Arial", 9, "bold"), borderwidth=1, 
+                                       relief="solid", padding=5, background="#e0e0e0")
+                speed_label.grid(row=1, column=col_idx, sticky="nsew")
+            
+            # Data rows
+            for row_idx, row_data in enumerate(rows, start=2):
+                segment = row_data.get("segment", "")
+                grade = row_data.get("grade_percent", 0)
+                values = row_data.get("values", {})
+                
+                # Row header (segment)
+                segment_label = ttk.Label(scrollable_frame, text=str(segment), 
+                                         font=("Arial", 9, "bold"), borderwidth=1, 
+                                         relief="solid", padding=5, background="#f0f0f0")
+                segment_label.grid(row=row_idx, column=0, sticky="nsew")
+                
+                # Grade column
+                grade_label = ttk.Label(scrollable_frame, text=f"{grade:.1f}", 
+                                       borderwidth=1, relief="solid", padding=5,
+                                       background="#f0f0f0")
+                grade_label.grid(row=row_idx, column=1, sticky="nsew")
+                
+                # Data cells
+                for col_idx, speed in enumerate(speeds, start=2):
+                    value = values.get(str(speed), "-")
+                    if isinstance(value, (int, float)):
+                        value = f"{value:.3f}"
+                    
+                    cell_label = ttk.Label(scrollable_frame, text=str(value), 
+                                          borderwidth=1, relief="solid", padding=5,
+                                          background="white")
+                    cell_label.grid(row=row_idx, column=col_idx, sticky="nsew")
+        
+        # Bind events
+        pollutant_var.trace_add("write", lambda *args: load_table_list())
+        table_var.trace_add("write", lambda *args: display_table())
+        
+        # Close button
+        close_btn = ttk.Button(main_frame, text="Close", command=dialog.destroy)
+        close_btn.pack(pady=10)
+        
+        # Auto-import on open
+        import_all()
+    
+    ttk.Button(button_frame, text="Compute Summary", command=compute_summary).pack(side="right", padx=5)
+    ttk.Button(button_frame, text="Data Catalog", command=show_data_catalog).pack(side="right", padx=5)
+    
+    root.mainloop()
