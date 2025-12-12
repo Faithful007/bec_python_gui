@@ -445,8 +445,22 @@ class JetFanTab(ttk.Frame):
             self.exact_z_dir2_var.set(f"{results_dir2.Z_raw:.2f}")
             self.approx_z_dir2_var.set(f"{results_dir2.Z_applied}")
 
-            # Send first direction results to result tab if available
-            if self.result_tab:
+            # Send both directions results to result tab if available
+            if self.result_tab and self.volume_tab:
+                try:
+                    dir1_label = self.volume_tab.dir1Name.get()
+                    dir2_label = self.volume_tab.dir2Name.get()
+                except Exception:
+                    dir1_label = "FROM"
+                    dir2_label = "TO"
+                    
+                self.result_tab.display_results_dual(
+                    dir1_label, dir2_label,
+                    inp_dir1, results_dir1, inp_dir2, results_dir2,
+                    None, None  # No traffic logic from this button
+                )
+            elif self.result_tab:
+                # Fallback to single direction if volume_tab not available
                 self.result_tab.display_results(inp_dir1, results_dir1)
 
         except Exception as e:
@@ -725,8 +739,8 @@ class ResultsTab(ttk.Frame):
         # 8. Pr
         self._add_text("8. Roadway wind pressure loss (ΔPr)\n", "subheading")
         self._add_text("   Formula: ", "formula")
-        self._add_text("ΔPr = CF\n", "formula")
-        self._add_text(f"   Calculation: ΔPr = {common_factor:.4f}\n")
+        self._add_text("ΔPr = CF × Vr²\n", "formula")
+        self._add_text(f"   Calculation: ΔPr = {common_factor:.4f} × {results.Vr}²\n")
         self._add_text(f"   Result: ", "result")
         self._add_text(f"ΔPr = {results.Pr} Pa\n\n", "result")
 
@@ -777,8 +791,8 @@ class ResultsTab(ttk.Frame):
         # 14. Z_applied
         self._add_text("14. Applied number of jet fans (Z_applied)\n", "subheading")
         self._add_text("    Formula: ", "formula")
-        self._add_text("Z_applied = ROUND(Z_raw) if Z_raw > 0, else 0\n", "formula")
-        self._add_text(f"    Calculation: Z_applied = ROUND({results.Z_raw})\n")
+        self._add_text("Z_applied = CEIL(Z_raw) if Z_raw > 0, else 0\n", "formula")
+        self._add_text(f"    Calculation: Z_applied = CEIL({results.Z_raw})\n")
         self._add_text(f"    Result: ", "result")
         self._add_text(f"Z_applied = {results.Z_applied} fans\n\n", "result")
 
@@ -903,42 +917,46 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"ΔPm = {results.Pm} Pa\n\n", "result")
 
             # 10. Pt
-            self._add_text("10. Total pressure loss (ΔPt)\n", "subheading")
+            self._add_text("10. Vehicle traffic pressure (ΔPt)\n", "subheading")
             self._add_text("   Formula: ", "formula")
-            self._add_text("ΔPt = ΔPr + ΔPm\n", "formula")
-            self._add_text(f"   Calculation: ΔPt = {results.Pr} + {results.Pm}\n")
+            if results.Vt > results.Vr:
+                self._add_text("ΔPt = (ρ/2) × (Ae/Ar) × n × (Vt-Vr)² (Vt>Vr)\n", "formula")
+                self._add_text(f"   Calculation: ΔPt = ({inp.rho}/2) × ({inp.Ae}/{inp.Ar}) × {results.n} × ({results.Vt}-{results.Vr})²\n")
+            else:
+                self._add_text("ΔPt = -(ρ/2) × (Ae/Ar) × n × (Vt-Vr)² (Vt<Vr)\n", "formula")
+                self._add_text(f"   Calculation: ΔPt = -({inp.rho}/2) × ({inp.Ae}/{inp.Ar}) × {results.n} × ({results.Vt}-{results.Vr})²\n")
             self._add_text(f"   Result: ", "result")
             self._add_text(f"ΔPt = {results.Pt} Pa\n\n", "result")
 
-            # 11. Tj
-            self._add_text("11. Total jet thrust required (Tj)\n", "subheading")
+            # 11. Pq (Required pressure)
+            self._add_text("11. Required pressure (ΔPq)\n", "subheading")
             self._add_text("   Formula: ", "formula")
-            self._add_text("Tj = ΔPt × Ar\n", "formula")
-            self._add_text(f"   Calculation: Tj = {results.Pt} × {inp.Ar}\n")
+            self._add_text("ΔPq = ΔPr + ΔPm - ΔPt\n", "formula")
+            self._add_text(f"   Calculation: ΔPq = {results.Pr} + {results.Pm} - ({results.Pt})\n")
             self._add_text(f"   Result: ", "result")
-            self._add_text(f"Tj = {results.Tj} N\n\n", "result")
+            self._add_text(f"ΔPq = {results.Pq} Pa\n\n", "result")
 
-            # 12. KjA
-            self._add_text("12. Jet area effectiveness (KjA)\n", "subheading")
+            # 12. Pj (Jet fan pressure per fan)
+            self._add_text("12. Jet fan pressure (ΔPj per fan)\n", "subheading")
             self._add_text("   Formula: ", "formula")
-            self._add_text("KjA = Kj × Aj\n", "formula")
-            self._add_text(f"   Calculation: KjA = {results.Kj} × {results.Aj}\n")
+            self._add_text("ΔPj = Kj × ρ/2 × Vj² × (Aj/Ar) × (1 - Vr/Vj) × η\n", "formula")
+            self._add_text(f"   Calculation: ΔPj = {results.Kj} × {inp.rho}/2 × {results.Vj}² × ({results.Aj}/{inp.Ar}) × (1 - {results.Vr}/{results.Vj}) × {inp.eta}\n")
             self._add_text(f"   Result: ", "result")
-            self._add_text(f"KjA = {results.KjA}\n\n", "result")
+            self._add_text(f"ΔPj = {results.Pj} Pa\n\n", "result")
 
             # 13. Z_raw
-            self._add_text("13. Exact number of jet fans (Z_raw)\n", "subheading")
+            self._add_text("13. Required number of jet fans (Z_raw)\n", "subheading")
             self._add_text("   Formula: ", "formula")
-            self._add_text("Z_raw = Tj / (η × ρ × Vj² × KjA)\n", "formula")
-            self._add_text(f"   Calculation: Z_raw = {results.Tj} / ({inp.eta} × {inp.rho} × {results.Vj}² × {results.KjA})\n")
+            self._add_text("Z_raw = ΔPq / ΔPj\n", "formula")
+            self._add_text(f"   Calculation: Z_raw = round({results.Pq} / {results.Pj}, 2)\n")
             self._add_text(f"   Result: ", "result")
             self._add_text(f"Z_raw = {results.Z_raw}\n\n", "result")
 
             # 14. Z_applied
             self._add_text("14. Applied number of jet fans (Z_applied)\n", "subheading")
             self._add_text("   Formula: ", "formula")
-            self._add_text("Z_applied = ROUND(Z_raw) if Z_raw > 0, else 0\n", "formula")
-            self._add_text(f"   Calculation: Z_applied = ROUND({results.Z_raw})\n")
+            self._add_text("Z_applied = CEIL(Z_raw) if Z_raw > 0, else 0\n", "formula")
+            self._add_text(f"   Calculation: Z_applied = CEIL({results.Z_raw})\n")
             self._add_text(f"   Result: ", "result")
             self._add_text(f"Z_applied = {results.Z_applied} fans\n\n", "result")
 
@@ -996,6 +1014,21 @@ class ResultsTab(ttk.Frame):
 
         _render_full_calc(f"DIRECTION: {dir1_label} → {dir2_label}", inp1, res1, traffic_logic_dir1)
         _render_full_calc(f"DIRECTION: {dir2_label} → {dir1_label}", inp2, res2, traffic_logic_dir2)
+
+        # Add summary section for both directions
+        self._add_text("\n" + "="*80 + "\n", "heading")
+        self._add_text("RESULT SUMMARY (BOTH DIRECTIONS)\n", "heading")
+        self._add_text("="*80 + "\n\n", "heading")
+        
+        self._add_text(f"Direction: {dir1_label} → {dir2_label}\n", "subheading")
+        self._add_text("-"*60 + "\n")
+        self._add_text(f"  Required jet fan count (calculated): {res1.Z_raw:.2f}\n", "result")
+        self._add_text(f"  Applied jet fan count (rounded up):  {res1.Z_applied} fans\n\n", "result")
+        
+        self._add_text(f"Direction: {dir2_label} → {dir1_label}\n", "subheading")
+        self._add_text("-"*60 + "\n")
+        self._add_text(f"  Required jet fan count (calculated): {res2.Z_raw:.2f}\n", "result")
+        self._add_text(f"  Applied jet fan count (rounded up):  {res2.Z_applied} fans\n\n", "result")
 
         self.text_widget.config(state="disabled")
 

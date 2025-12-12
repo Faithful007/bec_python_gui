@@ -293,10 +293,10 @@ def compute_Z_raw(Pq: float, Pj: float) -> float:
 
 
 def compute_Z_applied(Z_raw: float) -> int:
-    """적용 수량 Z대 = IF(Z<0,0, ROUND(Z,0))"""
+    """적용 수량 Z대 = IF(Z<0,0, CEIL(Z,0)) - Round up when > 0, else 0"""
     if Z_raw <= 0 or math.isinf(Z_raw):
         return 0
-    return round(Z_raw)
+    return math.ceil(Z_raw)
 
 
 # ---- 4. Helper that runs everything ----
