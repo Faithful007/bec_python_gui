@@ -1015,20 +1015,22 @@ class ResultsTab(ttk.Frame):
         _render_full_calc(f"DIRECTION: {dir1_label} → {dir2_label}", inp1, res1, traffic_logic_dir1)
         _render_full_calc(f"DIRECTION: {dir2_label} → {dir1_label}", inp2, res2, traffic_logic_dir2)
 
-        # Add summary section for both directions
+        # Add summary section for both directions in table form
         self._add_text("\n" + "="*80 + "\n", "heading")
         self._add_text("RESULT SUMMARY (BOTH DIRECTIONS)\n", "heading")
         self._add_text("="*80 + "\n\n", "heading")
-        
-        self._add_text(f"Direction: {dir1_label} → {dir2_label}\n", "subheading")
-        self._add_text("-"*60 + "\n")
-        self._add_text(f"  Required jet fan count (calculated): {res1.Z_raw:.2f}\n", "result")
-        self._add_text(f"  Applied jet fan count (rounded up):  {res1.Z_applied} fans\n\n", "result")
-        
-        self._add_text(f"Direction: {dir2_label} → {dir1_label}\n", "subheading")
-        self._add_text("-"*60 + "\n")
-        self._add_text(f"  Required jet fan count (calculated): {res2.Z_raw:.2f}\n", "result")
-        self._add_text(f"  Applied jet fan count (rounded up):  {res2.Z_applied} fans\n\n", "result")
+
+        # Simple text table for quick comparison
+        header = f"{'Direction':<28}{'Z_raw (calc)':>16}{'Z_applied (ceil)':>22}\n"
+        divider = "-" * (28 + 16 + 22) + "\n"
+        row1 = f"{dir1_label} → {dir2_label:<20}{res1.Z_raw:>16.2f}{res1.Z_applied:>22}\n"
+        row2 = f"{dir2_label} → {dir1_label:<20}{res2.Z_raw:>16.2f}{res2.Z_applied:>22}\n"
+
+        self._add_text(header, "subheading")
+        self._add_text(divider)
+        self._add_text(row1, "result")
+        self._add_text(row2, "result")
+        self._add_text("\n")
 
         self.text_widget.config(state="disabled")
 
