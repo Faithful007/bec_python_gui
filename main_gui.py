@@ -67,7 +67,7 @@ class JetFanTab(ttk.Frame):
         self.ae_var = tk.DoubleVar(value=1.0751)    # constant Ae
         self.eta_var = tk.DoubleVar(value=0.95)     # constant eta
 
-        # Direction 1 (FROM→TO, MasanToJinju) variables
+        # Direction 1 (FROM→TO, Destination) variables
         self.qtreq_dir1_var = tk.DoubleVar(value=0.0)
         self.lanes_dir1_var = tk.IntVar(value=1)
         self.ar_dir1_var = tk.DoubleVar(value=1.0)
@@ -77,7 +77,7 @@ class JetFanTab(ttk.Frame):
         self.exact_z_dir1_var = tk.StringVar(value="-")
         self.approx_z_dir1_var = tk.StringVar(value="-")
 
-        # Direction 2 (TO→FROM, JinjuToMasan) variables
+        # Direction 2 (TO→FROM, Destination) variables
         self.qtreq_dir2_var = tk.DoubleVar(value=0.0)
         self.lanes_dir2_var = tk.IntVar(value=1)
         self.ar_dir2_var = tk.DoubleVar(value=1.0)
@@ -119,7 +119,7 @@ class JetFanTab(ttk.Frame):
         top_frame.pack(fill="x", padx=0, pady=(0, pad * 3))
         
         # Row 0: Driving speed V_kmh
-        ttk.Label(top_frame, text="Driving speed V_kmh (km/h):").grid(
+        ttk.Label(top_frame, text="Driving speed, V_kmh [km/h]:").grid(
             row=0, column=0, sticky="e", padx=pad, pady=pad
         )
         v_kmh_cb = ttk.Combobox(
@@ -133,7 +133,7 @@ class JetFanTab(ttk.Frame):
         v_kmh_cb.grid(row=0, column=1, sticky="w", padx=pad, pady=pad)
         
         # Row 0: Jet fan diameter (continuing on same row)
-        ttk.Label(top_frame, text="Jet fan diameter Φ (mm):").grid(
+        ttk.Label(top_frame, text="Jet fan diameter, Φ [mm]:").grid(
             row=0, column=2, sticky="e", padx=pad, pady=pad
         )
         jet_cb = ttk.Combobox(
@@ -651,85 +651,85 @@ class ResultsTab(ttk.Frame):
         # Input parameters
         self._add_text("INPUT PARAMETERS\n", "subheading")
         self._add_text("-" * 80 + "\n")
-        self._add_text(f"Driving speed V_kmh:              {inp.V_kmh} km/h\n")
-        self._add_text(f"Required ventilation Qtreq:       {inp.Qtreq} m³/s\n")
-        self._add_text(f"Natural wind speed Un (computed): {results.Un} m/s\n")
+        self._add_text(f"Driving speed, V_kmh (velocity):   {inp.V_kmh} [km/h]\n")
+        self._add_text(f"Required ventilation (Qtreq):       {inp.Qtreq} [m³/s]\n")
+        self._add_text(f"Natural wind speed, (Un): {results.Un} [m/s]\n")
         # Imax and road type inputs removed from UI; omitted from display
         self._add_text(f"Number of lanes:                  {inp.lanes}\n")
-        self._add_text(f"Tunnel cross-sectional area Ar:   {inp.Ar} m²\n")
-        self._add_text(f"Tunnel length Lr:                 {inp.Lr} m\n")
-        self._add_text(f"Air density ρ:                    {inp.rho} kg/m³\n")
-        self._add_text(f"Entrance loss ξ:                  {inp.xi}\n")
-        self._add_text(f"Friction loss λ:                  {inp.lamb}\n")
-        self._add_text(f"Representative diameter Dr:       {inp.Dr} m\n")
-        self._add_text(f"Equivalent resistance area Ae:    {inp.Ae} m²\n")
-        self._add_text(f"Jet fan diameter Φ:               {inp.jet_diameter} mm\n")
+        self._add_text(f"Tunnel cross-sectional area, Ar:   {inp.Ar} [m²]\n")
+        self._add_text(f"Tunnel length, Lr:                 {inp.Lr} [m]\n")
+        self._add_text(f"Air density, ρ (rho):              {inp.rho} [kg/m³]\n")
+        self._add_text(f"Entrance loss, ξ (xi):             {inp.xi}\n")
+        self._add_text(f"Friction loss, λ (lambda):         {inp.lamb}\n")
+        self._add_text(f"Representative diameter, Dr:       {inp.Dr} [m]\n")
+        self._add_text(f"Equivalent resistance area, Ae:    {inp.Ae} [m²]\n")
+        self._add_text(f"Jet fan diameter, Φ (phi):         {inp.jet_diameter} [mm]\n")
         self._add_text(f"Jet fan type:                     {'High efficiency' if inp.high_efficiency else 'Standard'}\n")
-        self._add_text(f"Jet fan efficiency η:             {inp.eta}\n\n")
+        self._add_text(f"Jet fan efficiency η (eta):       {inp.eta}\n\n")
 
         # Calculations
         self._add_text("CALCULATION STEPS\n", "subheading")
         self._add_text("="*80 + "\n\n")
 
         # 1. Vt
-        self._add_text("1. Driving speed (Vt)\n", "subheading")
+        self._add_text("1. Driving speed (Vt - velocity in tunnel)\n", "subheading")
         self._add_text("   Formula: ", "formula")
-        self._add_text("Vt = Vt_MAP[V_kmh] (lookup)\n", "formula")
-        self._add_text(f"   Selected V_kmh = {inp.V_kmh} km/h\n")
+        self._add_text("Vt = Vt_MAP[V_kmh] (lookup table)\n", "formula")
+        self._add_text(f"   Selected V_kmh = {inp.V_kmh} [km/h]\n")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"Vt = {results.Vt} m/s\n\n", "result")
+        self._add_text(f"Vt = {results.Vt} [m/s]\n\n", "result")
 
         # 2. Vr
-        self._add_text("2. Roadway wind speed (Vr)\n", "subheading")
+        self._add_text("2. Roadway wind speed, (Vr)\n", "subheading")
         self._add_text("   Formula: ", "formula")
         self._add_text("Vr = Qtreq / Ar\n", "formula")
         self._add_text(f"   Calculation: Vr = {inp.Qtreq} / {inp.Ar}\n")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"Vr = {results.Vr} m/s\n\n", "result")
+        self._add_text(f"Vr = {results.Vr} [m/s]\n\n", "result")
 
         # 3. Un
-        self._add_text("3. Natural wind speed (Un)\n", "subheading")
+        self._add_text("3. Natural wind speed (Un - constant)\n", "subheading")
         self._add_text("   Formula: ", "formula")
-        self._add_text("Un = 2.5 (constant for Jet Fan calc)\n", "formula")
+        self._add_text("Un = 2.5 (constant for jet fan calculation)\n", "formula")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"Un = {results.Un} m/s\n\n", "result")
+        self._add_text(f"Un = {results.Un} [m/s]\n\n", "result")
 
         # 4. Aj
-        self._add_text("4. Jet fan area (Aj)\n", "subheading")
+        self._add_text("4. Jet fan area (Aj - cross-sectional area)\n", "subheading")
         self._add_text("   Formula: ", "formula")
         self._add_text("Aj = Lookup from jet diameter map\n", "formula")
-        self._add_text(f"   Jet diameter Φ = {inp.jet_diameter} mm\n")
+        self._add_text(f"   Jet diameter, Φ (phi) = {inp.jet_diameter} [mm]\n")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"Aj = {results.Aj} m²\n\n", "result")
+        self._add_text(f"Aj = {results.Aj} [m²]\n\n", "result")
 
         # 5. Vj
         self._add_text("5. Jet fan discharge speed (Vj)\n", "subheading")
         self._add_text("   Formula: ", "formula")
-        self._add_text("Vj = 30 m/s (High efficiency) or 34 m/s (Standard)\n", "formula")
+        self._add_text("Vj = 30 [m/s] (High efficiency) or 34 [m/s] (Standard)\n", "formula")
         self._add_text(f"   Type: {'High efficiency' if inp.high_efficiency else 'Standard'}\n")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"Vj = {results.Vj} m/s\n\n", "result")
+        self._add_text(f"Vj = {results.Vj} [m/s]\n\n", "result")
 
         # 6. n
         self._add_text("6. Number of vehicles in tunnel (n)\n", "subheading")
         self._add_text("   Formula: ", "formula")
         self._add_text("n = ROUND(Q × lanes × Lr / (3600 × Vt) + 0.4)\n", "formula")
-        self._add_text(f"   where Q is traffic flow computed from Imax = {inp.Imax} PCU/hr·lane\n")
+        self._add_text(f"   where Q is traffic flow computed from Imax = {inp.Imax} [PCU/hr·lane]\n")
         self._add_text(f"   Calculation: n = ROUND(Q × {inp.lanes} × {inp.Lr} / (3600 × {results.Vt}) + 0.4)\n")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"n = {results.n} vehicles\n\n", "result")
+        self._add_text(f"n = {results.n} [vehicles]\n\n", "result")
 
         # 7. Kj
-        self._add_text("7. Jet fan pressure coefficient (Kj)\n", "subheading")
+        self._add_text("7. Jet fan pressure coefficient (Kj - effectiveness)\n", "subheading")
         self._add_text("   Formula: ", "formula")
-        self._add_text("Kj = 0.99 (Vr<4), 0.92 (4≤Vr<8), 0.9 (Vr≥8)\n", "formula")
-        self._add_text(f"   Vr = {results.Vr} m/s\n")
+        self._add_text("Kj = 0.99 (if Vr<4), 0.92 (if 4≤Vr<8), 0.9 (if Vr≥8)\n", "formula")
+        self._add_text(f"   Vr = {results.Vr} [m/s]\n")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"Kj = {results.Kj}\n\n", "result")
+        self._add_text(f"Kj = {results.Kj} (dimensionless)\n\n", "result")
 
         # Common factor
         common_factor = (1 + inp.xi + inp.lamb * inp.Lr / inp.Dr) * inp.rho / 2.0
-        self._add_text("Common factor for pressure calculations:\n", "subheading")
+        self._add_text("Common factor for pressure calculations (CF):\n", "subheading")
         self._add_text("   Formula: ", "formula")
         self._add_text("CF = (1 + ξ + λ × Lr / Dr) × ρ / 2\n", "formula")
         self._add_text(f"   Calculation: CF = (1 + {inp.xi} + {inp.lamb} × {inp.Lr} / {inp.Dr}) × {inp.rho} / 2\n")
@@ -737,64 +737,64 @@ class ResultsTab(ttk.Frame):
         self._add_text(f"CF = {common_factor:.4f}\n\n", "result")
 
         # 8. Pr
-        self._add_text("8. Roadway wind pressure loss (ΔPr)\n", "subheading")
+        self._add_text("8. Roadway wind pressure loss (ΔPr - pressure drop)\n", "subheading")
         self._add_text("   Formula: ", "formula")
         self._add_text("ΔPr = CF × Vr²\n", "formula")
         self._add_text(f"   Calculation: ΔPr = {common_factor:.4f} × {results.Vr}²\n")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"ΔPr = {results.Pr} Pa\n\n", "result")
+        self._add_text(f"ΔPr = {results.Pr} [Pa]\n\n", "result")
 
         # 9. Pm
-        self._add_text("9. Natural wind pressure loss (ΔPm)\n", "subheading")
+        self._add_text("9. Natural wind pressure loss (ΔPm - pressure drop)\n", "subheading")
         self._add_text("   Formula: ", "formula")
         self._add_text("ΔPm = CF × Un²\n", "formula")
         self._add_text(f"   Calculation: ΔPm = {common_factor:.4f} × {results.Un}²\n")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"ΔPm = {results.Pm} Pa\n\n", "result")
+        self._add_text(f"ΔPm = {results.Pm} [Pa]\n\n", "result")
 
         # 10. Pt
-        self._add_text("10. Vehicle traffic pressure (ΔPt)\n", "subheading")
+        self._add_text("10. Vehicle traffic pressure (ΔPt - traffic effect)\n", "subheading")
         self._add_text("   Formula: ", "formula")
         if results.Vt > results.Vr:
-            self._add_text("ΔPt = (ρ/2) × (Ae/Ar) × n × (Vt-Vr)² (Vt>Vr)\n", "formula")
+            self._add_text("ΔPt = (ρ/2) × (Ae/Ar) × n × (Vt-Vr)² (when Vt>Vr)\n", "formula")
             self._add_text(f"   Calculation: ΔPt = ({inp.rho}/2) × ({inp.Ae}/{inp.Ar}) × {results.n} × ({results.Vt}-{results.Vr})²\n")
         else:
-            self._add_text("ΔPt = -ρ/2 × Ae/Ar × n + (Vt-Vr)² (Vt<Vr)\n", "formula")
-            self._add_text(f"   Calculation: ΔPt = -({inp.rho}/2) × ({inp.Ae}/{inp.Ar}) × {results.n} + ({results.Vt}-{results.Vr})²\n")
+            self._add_text("ΔPt = -(ρ/2) × (Ae/Ar) × n × (Vt-Vr)² (when Vt<Vr)\n", "formula")
+            self._add_text(f"   Calculation: ΔPt = -({inp.rho}/2) × ({inp.Ae}/{inp.Ar}) × {results.n} × ({results.Vt}-{results.Vr})²\n")
         self._add_text(f"   Result: ", "result")
-        self._add_text(f"ΔPt = {results.Pt} Pa\n\n", "result")
+        self._add_text(f"ΔPt = {results.Pt} [Pa]\n\n", "result")
 
         # 11. Pq
-        self._add_text("11. Required pressure (ΔPq)\n", "subheading")
+        self._add_text("11. Required pressure (ΔPq - needed for fan)\n", "subheading")
         self._add_text("    Formula: ", "formula")
         self._add_text("ΔPq = ΔPr + ΔPm - ΔPt\n", "formula")
         self._add_text(f"    Calculation: ΔPq = {results.Pr} + {results.Pm} - {results.Pt}\n")
         self._add_text(f"    Result: ", "result")
-        self._add_text(f"ΔPq = {results.Pq} Pa\n\n", "result")
+        self._add_text(f"ΔPq = {results.Pq} [Pa]\n\n", "result")
 
         # 12. Pj
-        self._add_text("12. Jet fan pressure (ΔPj per fan)\n", "subheading")
+        self._add_text("12. Jet fan pressure (ΔPj - per fan)\n", "subheading")
         self._add_text("    Formula: ", "formula")
         self._add_text("ΔPj = Kj × ρ/2 × Vj² × (Aj/Ar) × (1 - Vr/Vj) × η\n", "formula")
         self._add_text(f"    Calculation: ΔPj = {results.Kj} × {inp.rho}/2 × {results.Vj}² × ({results.Aj}/{inp.Ar}) × (1 - {results.Vr}/{results.Vj}) × {inp.eta}\n")
         self._add_text(f"    Result: ", "result")
-        self._add_text(f"ΔPj = {results.Pj} Pa\n\n", "result")
+        self._add_text(f"ΔPj = {results.Pj} [Pa]\n\n", "result")
 
         # 13. Z_raw
         self._add_text("13. Required number of jet fans (Z_raw)\n", "subheading")
         self._add_text("    Formula: ", "formula")
-        self._add_text("Z = ΔPq / ΔPj\n", "formula")
-        self._add_text(f"    Calculation: Z = {results.Pq} / {results.Pj}\n")
+        self._add_text("Z_raw = ΔPq / ΔPj\n", "formula")
+        self._add_text(f"    Calculation: Z_raw = {results.Pq} / {results.Pj}\n")
         self._add_text(f"    Result: ", "result")
-        self._add_text(f"Z_raw = {results.Z_raw}\n\n", "result")
+        self._add_text(f"Z_raw = {results.Z_raw} [fans]\n\n", "result")
 
         # 14. Z_applied
-        self._add_text("14. Applied number of jet fans (Z_applied)\n", "subheading")
+        self._add_text("14. Applied number of jet fans (Z_applied - rounded up)\n", "subheading")
         self._add_text("    Formula: ", "formula")
         self._add_text("Z_applied = CEIL(Z_raw) if Z_raw > 0, else 0\n", "formula")
         self._add_text(f"    Calculation: Z_applied = CEIL({results.Z_raw})\n")
         self._add_text(f"    Result: ", "result")
-        self._add_text(f"Z_applied = {results.Z_applied} fans\n\n", "result")
+        self._add_text(f"Z_applied = {results.Z_applied} [fans]\n\n", "result")
 
         # Final summary
         self._add_text("="*80 + "\n", "heading")
@@ -818,20 +818,20 @@ class ResultsTab(ttk.Frame):
             # INPUT PARAMETERS
             self._add_text("INPUT PARAMETERS\n", "subheading")
             self._add_text("-"*80 + "\n")
-            self._add_text(f"Driving speed V_kmh:              {inp.V_kmh} km/h\n")
-            self._add_text(f"Required ventilation Qtreq:       {inp.Qtreq} m³/s\n")
-            self._add_text(f"Natural wind speed Un (computed): {results.Un} m/s\n")
+            self._add_text(f"Driving speed V_kmh (velocity):   {inp.V_kmh} [km/h]\n")
+            self._add_text(f"Required ventilation Qtreq:       {inp.Qtreq} [m³/s]\n")
+            self._add_text(f"Natural wind speed Un (computed): {results.Un} [m/s]\n")
             self._add_text(f"Number of lanes:                  {inp.lanes}\n")
-            self._add_text(f"Tunnel cross-sectional area Ar:   {inp.Ar} m²\n")
-            self._add_text(f"Tunnel length Lr:                 {inp.Lr} m\n")
-            self._add_text(f"Air density ρ:                    {inp.rho} kg/m³\n")
-            self._add_text(f"Entrance loss ξ:                  {inp.xi}\n")
-            self._add_text(f"Friction loss λ:                  {inp.lamb}\n")
-            self._add_text(f"Representative diameter Dr:       {inp.Dr} m\n")
-            self._add_text(f"Equivalent resistance area Ae:    {inp.Ae} m²\n")
-            self._add_text(f"Jet fan diameter Φ:               {inp.jet_diameter} mm\n")
+            self._add_text(f"Tunnel cross-sectional area Ar:   {inp.Ar} [m²]\n")
+            self._add_text(f"Tunnel length Lr:                 {inp.Lr} [m]\n")
+            self._add_text(f"Air density ρ (rho):              {inp.rho} [kg/m³]\n")
+            self._add_text(f"Entrance loss ξ (xi):             {inp.xi}\n")
+            self._add_text(f"Friction loss λ (lambda):         {inp.lamb}\n")
+            self._add_text(f"Representative diameter Dr:       {inp.Dr} [m]\n")
+            self._add_text(f"Equivalent resistance area Ae:    {inp.Ae} [m²]\n")
+            self._add_text(f"Jet fan diameter Φ (phi):         {inp.jet_diameter} [mm]\n")
             self._add_text(f"Jet fan type:                     {'High efficiency' if inp.high_efficiency else 'Standard'}\n")
-            self._add_text(f"Jet fan efficiency η:             {inp.eta}\n\n")
+            self._add_text(f"Jet fan efficiency η (eta):       {inp.eta}\n\n")
 
             # CALCULATION STEPS
             self._add_text("CALCULATION STEPS\n", "subheading")
@@ -864,12 +864,12 @@ class ResultsTab(ttk.Frame):
             self._add_text("4. Jet fan area (Aj)\n", "subheading")
             self._add_text("   Formula: ", "formula")
             self._add_text("Aj = Lookup from jet diameter map\n", "formula")
-            self._add_text(f"   Jet diameter Φ = {inp.jet_diameter} mm\n")
+            self._add_text(f"   Jet diameter, Φ (phi) = {inp.jet_diameter} [mm]\n")
             self._add_text(f"   Result: ", "result")
             self._add_text(f"Aj = {results.Aj} m²\n\n", "result")
 
             # 5. Vj
-            self._add_text("5. Jet fan discharge speed (Vj)\n", "subheading")
+            self._add_text("5. Jet fan discharge speed, Vj\n", "subheading")
             self._add_text("   Formula: ", "formula")
             self._add_text("Vj = 30 m/s (High efficiency) or 34 m/s (Standard)\n", "formula")
             self._add_text(f"   Type: {'High efficiency' if inp.high_efficiency else 'Standard'}\n")
@@ -884,7 +884,7 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"n = {results.n} vehicles\n\n", "result")
 
             # 7. Kj
-            self._add_text("7. Jet fan pressure coefficient (Kj)\n", "subheading")
+            self._add_text("7. Jet fan pressure coefficient, Kj\n", "subheading")
             self._add_text("   Formula: ", "formula")
             self._add_text("Kj = 0.99 (Vr<4), 0.92 (4≤Vr<8), 0.9 (Vr≥8)\n", "formula")
             self._add_text(f"   Vr = {results.Vr} m/s\n")
@@ -901,7 +901,7 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"CF = {common_factor:.4f}\n\n", "result")
 
             # 8. Pr
-            self._add_text("8. Roadway wind pressure loss (ΔPr)\n", "subheading")
+            self._add_text("8. Roadway wind pressure loss, ΔPr\n", "subheading")
             self._add_text("   Formula: ", "formula")
             self._add_text("ΔPr = CF × Vr²\n", "formula")
             self._add_text(f"   Calculation: ΔPr = {common_factor:.4f} × {results.Vr}²\n")
@@ -909,7 +909,7 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"ΔPr = {results.Pr} Pa\n\n", "result")
 
             # 9. Pm
-            self._add_text("9. Natural wind pressure loss (ΔPm)\n", "subheading")
+            self._add_text("9. Natural wind pressure loss, ΔPm\n", "subheading")
             self._add_text("   Formula: ", "formula")
             self._add_text("ΔPm = CF × Un²\n", "formula")
             self._add_text(f"   Calculation: ΔPm = {common_factor:.4f} × {results.Un}²\n")
@@ -917,7 +917,7 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"ΔPm = {results.Pm} Pa\n\n", "result")
 
             # 10. Pt
-            self._add_text("10. Vehicle traffic pressure (ΔPt)\n", "subheading")
+            self._add_text("10. Vehicle traffic pressure, ΔPt\n", "subheading")
             self._add_text("   Formula: ", "formula")
             if results.Vt > results.Vr:
                 self._add_text("ΔPt = (ρ/2) × (Ae/Ar) × n × (Vt-Vr)² (Vt>Vr)\n", "formula")
@@ -929,7 +929,7 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"ΔPt = {results.Pt} Pa\n\n", "result")
 
             # 11. Pq (Required pressure)
-            self._add_text("11. Required pressure (ΔPq)\n", "subheading")
+            self._add_text("11. Required pressure, ΔPq\n", "subheading")
             self._add_text("   Formula: ", "formula")
             self._add_text("ΔPq = ΔPr + ΔPm - ΔPt\n", "formula")
             self._add_text(f"   Calculation: ΔPq = {results.Pr} + {results.Pm} - ({results.Pt})\n")
@@ -937,7 +937,7 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"ΔPq = {results.Pq} Pa\n\n", "result")
 
             # 12. Pj (Jet fan pressure per fan)
-            self._add_text("12. Jet fan pressure (ΔPj per fan)\n", "subheading")
+            self._add_text("12. Jet fan pressure (per fan), ΔPj\n", "subheading")
             self._add_text("   Formula: ", "formula")
             self._add_text("ΔPj = Kj × ρ/2 × Vj² × (Aj/Ar) × (1 - Vr/Vj) × η\n", "formula")
             self._add_text(f"   Calculation: ΔPj = {results.Kj} × {inp.rho}/2 × {results.Vj}² × ({results.Aj}/{inp.Ar}) × (1 - {results.Vr}/{results.Vj}) × {inp.eta}\n")
@@ -945,7 +945,7 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"ΔPj = {results.Pj} Pa\n\n", "result")
 
             # 13. Z_raw
-            self._add_text("13. Required number of jet fans (Z_raw)\n", "subheading")
+            self._add_text("13. Required number of jet fans, Z_raw\n", "subheading")
             self._add_text("   Formula: ", "formula")
             self._add_text("Z_raw = ΔPq / ΔPj\n", "formula")
             self._add_text(f"   Calculation: Z_raw = round({results.Pq} / {results.Pj}, 2)\n")
@@ -953,7 +953,7 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"Z_raw = {results.Z_raw}\n\n", "result")
 
             # 14. Z_applied
-            self._add_text("14. Applied number of jet fans (Z_applied)\n", "subheading")
+            self._add_text("14. Applied number of jet fans, (Z_applied)\n", "subheading")
             self._add_text("   Formula: ", "formula")
             self._add_text("Z_applied = CEIL(Z_raw) if Z_raw > 0, else 0\n", "formula")
             self._add_text(f"   Calculation: Z_applied = CEIL({results.Z_raw})\n")
@@ -964,8 +964,8 @@ class ResultsTab(ttk.Frame):
             self._add_text("-"*80 + "\n", "heading")
             self._add_text("FINAL RESULT\n", "heading")
             self._add_text("-"*80 + "\n", "heading")
-            self._add_text(f"Required jet fan count (calculated): {results.Z_raw}\n", "result")
-            self._add_text(f"Applied jet fan count (rounded up): {results.Z_applied} fans\n\n", "result")
+            self._add_text(f"Required jet fan count, (calculated): {results.Z_raw}\n", "result")
+            self._add_text(f"Applied jet fan count, (rounded up): {results.Z_applied} fans\n\n", "result")
 
             # Traffic Estimation Section (if data available)
             if traffic_logic and traffic_logic.batch:
@@ -1200,17 +1200,17 @@ class TunnelGeometry(ttk.LabelFrame):
         ttk.Separator(self, orient="horizontal").grid(row=1, column=0, columnspan=4, sticky="ew", pady=(2, 6))
 
         # Computed average Ar/Lp (read-only)
-        ttk.Label(self, text="Average Tunnel Cross-Section Area [Ar] [m²]:").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(self, text="Average Tunnel Cross-Section Area, Ar [m²]:").grid(row=2, column=0, sticky="w", padx=4, pady=4)
         self.avg_ar_var = tk.DoubleVar(value=0.0)
         ttk.Entry(self, textvariable=self.avg_ar_var, width=14, state="readonly").grid(row=2, column=1, sticky="w", padx=4, pady=4)
 
-        ttk.Label(self, text="Average Tunnel Perimeter [Lp] [m]:").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(self, text="Average Tunnel Perimeter, Lp [m]:").grid(row=3, column=0, sticky="w", padx=4, pady=4)
         self.avg_lp_var = tk.DoubleVar(value=0.0)
         ttk.Entry(self, textvariable=self.avg_lp_var, width=14, state="readonly").grid(row=3, column=1, sticky="w", padx=4, pady=4)
 
         # Computed Dr = (4 * Ar) / Lp (read-only)
         self.dr_var = tk.DoubleVar(value=0.0)
-        ttk.Label(self, text="Tunnel Representative Diameter [Dr] (m):").grid(row=4, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(self, text="Tunnel Representative Diameter, Dr [m]:").grid(row=4, column=0, sticky="w", padx=4, pady=4)
         ttk.Entry(self, textvariable=self.dr_var, width=14, state="readonly").grid(row=4, column=1, sticky="w", padx=4, pady=4)
 
         if on_ar_change is not None:
@@ -1297,9 +1297,9 @@ class TunnelGeometry(ttk.LabelFrame):
         rows = [
             ("Tunnel gradient [%]", "gradient", tk.DoubleVar),
             ("Tunnel length [m]", "length", tk.DoubleVar),
-            ("Number of lanes [N]", "lanes", tk.IntVar),
-            ("Tunnel Cross-Section Area [Ar] [m²]", "ar", tk.DoubleVar),
-            ("Tunnel Perimeter [Lp] [m]", "lp", tk.DoubleVar),
+            ("Number of lanes, N", "lanes", tk.IntVar),
+            ("Tunnel Cross-Section Area, Ar [m²]", "ar", tk.DoubleVar),
+            ("Tunnel Perimeter, Lp [m]", "lp", tk.DoubleVar),
         ]
 
         # Keep strong refs to vars to prevent GC
