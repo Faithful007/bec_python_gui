@@ -62,7 +62,7 @@ class JetFanTab(ttk.Frame):
         initial_key = int(self.v_kmh_var.get())
         self.vt_var = tk.DoubleVar(value=Vt_MAP.get(initial_key, Vt_MAP.get(10)))
         self.rho_var = tk.DoubleVar(value=1.2)      # constant rho
-        self.xi_var = tk.DoubleVar(value=0.99)      # constant xi
+        self.xi_var = tk.DoubleVar(value=0.6)      # constant xi
         self.lamb_var = tk.DoubleVar(value=0.025)   # constant lamb
         self.ae_var = tk.DoubleVar(value=1.0751)    # constant Ae
         self.eta_var = tk.DoubleVar(value=0.95)     # constant eta
@@ -712,10 +712,18 @@ class ResultsTab(ttk.Frame):
 
         # 6. n
         self._add_text("6. Number of vehicles in tunnel (n)\n", "subheading")
-        self._add_text("   Formula: ", "formula")
-        self._add_text("n = ROUND(Q × lanes × Lr / (3600 × Vt) + 0.4)\n", "formula")
-        self._add_text(f"   where Q is traffic flow computed from Imax = {inp.Imax} [PCU/hr·lane]\n")
-        self._add_text(f"   Calculation: n = ROUND(Q × {inp.lanes} × {inp.Lr} / (3600 × {results.Vt}) + 0.4)\n")
+        use_vehicle_override = inp.vehicle_hr_lane and inp.vehicle_hr_lane > 0
+        if use_vehicle_override:
+            self._add_text("   Formula: ", "formula")
+            self._add_text("n = ROUND((Vehicle/hr, lane × lanes × Lr) / (3600 × Vt) + 0.4)\n", "formula")
+            self._add_text(
+                f"   Calculation: n = ROUND(({inp.vehicle_hr_lane} × {inp.lanes} × {inp.Lr}) / (3600 × {results.Vt}) + 0.4)\n"
+            )
+        else:
+            self._add_text("   Formula: ", "formula")
+            self._add_text("n = ROUND(Q × lanes × Lr / (3600 × Vt) + 0.4)\n", "formula")
+            self._add_text(f"   where Q is traffic flow computed from Imax = {inp.Imax} [PCU/hr·lane]\n")
+            self._add_text(f"   Calculation: n = ROUND(Q × {inp.lanes} × {inp.Lr} / (3600 × {results.Vt}) + 0.4)\n")
         self._add_text(f"   Result: ", "result")
         self._add_text(f"n = {results.n} [vehicles]\n\n", "result")
 
@@ -878,8 +886,17 @@ class ResultsTab(ttk.Frame):
 
             # 6. n
             self._add_text("6. Number of vehicles in tunnel (n)\n", "subheading")
-            self._add_text("   Formula: ", "formula")
-            self._add_text("n = ROUND(Q × lanes × Lr / (3600 × Vt) + 0.4)\n", "formula")
+            use_vehicle_override = inp.vehicle_hr_lane and inp.vehicle_hr_lane > 0
+            if use_vehicle_override:
+                self._add_text("   Formula: ", "formula")
+                self._add_text("n = ROUND((Vehicle/hr, lane × lanes × Lr) / (3600 × Vt) + 0.4)\n", "formula")
+                self._add_text(
+                    f"   Calculation: n = ROUND(({inp.vehicle_hr_lane} × {inp.lanes} × {inp.Lr}) / (3600 × {results.Vt}) + 0.4)\n"
+                )
+            else:
+                self._add_text("   Formula: ", "formula")
+                self._add_text("n = ROUND(Q × lanes × Lr / (3600 × Vt) + 0.4)\n", "formula")
+                self._add_text(f"   Calculation: n = ROUND(Q × {inp.lanes} × {inp.Lr} / (3600 × {results.Vt}) + 0.4)\n")
             self._add_text(f"   Result: ", "result")
             self._add_text(f"n = {results.n} vehicles\n\n", "result")
 
@@ -2823,7 +2840,8 @@ class VentilationVolumeTab(ttk.Frame):
                     else:
                         vehicles_km_lane = 0.0
                         vehicles_km_lane_str = "0.00"
-                    vehicles_hr_lane = round(row_data.speed_kmh * vehicles_km_lane * lanes, 0)
+                    # Vehicles/hr per lane = speed × vehicles/km,lane
+                    vehicles_hr_lane = round(row_data.speed_kmh * vehicles_km_lane, 0)
                     vehicles_hr_lane_str = f"{vehicles_hr_lane:.0f}"
 
                     try:

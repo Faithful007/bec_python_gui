@@ -215,8 +215,8 @@ def compute_Vj(inp: TunnelVentInputs) -> float:
 def compute_n(inp: TunnelVentInputs, Vt: float) -> float:
     """
     터널내 자동차 수 n
-    Preferred formula (if vehicle/hr per lane provided from volume tab):
-      n = ROUND((Vehicle/hr, lane × Lr / (3600 × Vt) + 0.4), 0)
+        Preferred formula (if vehicle/hr per lane provided from volume tab):
+            n = ROUND((Vehicle/hr, lane × lanes × Lr / (3600 × Vt) + 0.4), 0)
 
     Fallback (when vehicle/hr per lane is not provided):
       use flow Q [PCU/hr·lane] as before.
@@ -224,8 +224,9 @@ def compute_n(inp: TunnelVentInputs, Vt: float) -> float:
     if Vt <= 0:
         return 0.0
 
+    # vehicle_hr_lane is vehicles/hour per lane; multiply by lanes for total vehicles/hour in tunnel
     if inp.vehicle_hr_lane and inp.vehicle_hr_lane > 0:
-        n_val = inp.vehicle_hr_lane * inp.Lr / (3600.0 * Vt)
+        n_val = inp.vehicle_hr_lane * inp.lanes * inp.Lr / (3600.0 * Vt)
         return round(n_val + 0.4, 0)
 
     # Fallback to legacy flow-based calculation
@@ -280,9 +281,9 @@ def compute_Pq(Pr: float, Pm: float, Pt: float) -> float:
 
 def compute_Pj(inp: TunnelVentInputs, Vr: float, Aj: float, Vj: float, Kj: float) -> float:
     """
-    ΔPj = Kj * ρ/2 * Vj^2 * Aj/Ar * (1 - Vr/Vj) * η
+    ΔPj = Kj * ρ * Vj^2 * Aj/Ar * (1 - Vr/Vj) * η
     """
-    return round(Kj * (inp.rho / 2.0) * Vj ** 2 * Aj / inp.Ar * (1 - Vr / Vj) * inp.eta, 4)
+    return round(Kj * inp.rho * Vj ** 2 * Aj / inp.Ar * (1 - Vr / Vj) * inp.eta, 4)
 
 
 def compute_Z_raw(Pq: float, Pj: float) -> float:
