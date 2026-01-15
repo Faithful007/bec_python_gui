@@ -379,7 +379,7 @@ class JetFanTab(ttk.Frame):
             lr_var = self.lr_dir1_var
             dr_var = self.dr_dir1_var
             imax_var = self.imax_dir1_var
-            direction_str = "MasanToJinju"
+            direction_str = "FromToTo"
         else:
             qtreq_var = self.qtreq_dir2_var
             lanes_var = self.lanes_dir2_var
@@ -387,7 +387,7 @@ class JetFanTab(ttk.Frame):
             lr_var = self.lr_dir2_var
             dr_var = self.dr_dir2_var
             imax_var = self.imax_dir2_var
-            direction_str = "JinjuToMasan"
+            direction_str = "ToToFrom"
 
         vehicle_hr_lane = None
         try:
@@ -478,11 +478,11 @@ class JetFanTab(ttk.Frame):
         if not self.volume_tab:
             return
         
-        # Sync for Direction 1 (FROM→TO, MasanToJinju)
+        # Sync for Direction 1 (FROM→TO, FromToTo)
         def sync_dir1(*_):
             try:
-                params = self.volume_tab.get_params_for_jet(direction="MasanToJinju")
-                volsum = self.volume_tab.get_volume_summary(direction="MasanToJinju")
+                params = self.volume_tab.get_params_for_jet(direction="FromToTo")
+                volsum = self.volume_tab.get_volume_summary(direction="FromToTo")
                 # Geometry - use Average values from TunnelGeometry
                 self.ar_dir1_var.set(params.get("Ar", self.ar_dir1_var.get()))
                 self.lr_dir1_var.set(params.get("Lr_m", self.lr_dir1_var.get()))
@@ -497,11 +497,11 @@ class JetFanTab(ttk.Frame):
             except Exception as e:
                 pass
         
-        # Sync for Direction 2 (TO→FROM, JinjuToMasan)
+        # Sync for Direction 2 (TO→FROM, ToToFrom)
         def sync_dir2(*_):
             try:
-                params = self.volume_tab.get_params_for_jet(direction="JinjuToMasan")
-                volsum = self.volume_tab.get_volume_summary(direction="JinjuToMasan")
+                params = self.volume_tab.get_params_for_jet(direction="ToToFrom")
+                volsum = self.volume_tab.get_volume_summary(direction="ToToFrom")
                 # Geometry - use Average values from TunnelGeometry
                 self.ar_dir2_var.set(params.get("Ar", self.ar_dir2_var.get()))
                 self.lr_dir2_var.set(params.get("Lr_m", self.lr_dir2_var.get()))
@@ -516,25 +516,25 @@ class JetFanTab(ttk.Frame):
             except Exception as e:
                 pass
         
-        # Trace Direction 1 (MasanToJinju)
+        # Trace Direction 1 (FromToTo)
         try:
-            if hasattr(self.volume_tab, 'tunnelGeometryMasanToJinju'):
-                self.volume_tab.tunnelGeometryMasanToJinju.avg_ar_var.trace_add("write", sync_dir1)
-                self.volume_tab.tunnelGeometryMasanToJinju.avg_lp_var.trace_add("write", sync_dir1)
-                self.volume_tab.tunnelGeometryMasanToJinju.dr_var.trace_add("write", sync_dir1)
-            self.volume_tab.totalLengthMasanToJinju_m.trace_add("write", sync_dir1)
-            self.volume_tab.designSpeedMasanToJinju.trace_add("write", sync_dir1)
+            if hasattr(self.volume_tab, 'tunnelGeometryFromToTo'):
+                self.volume_tab.tunnelGeometryFromToTo.avg_ar_var.trace_add("write", sync_dir1)
+                self.volume_tab.tunnelGeometryFromToTo.avg_lp_var.trace_add("write", sync_dir1)
+                self.volume_tab.tunnelGeometryFromToTo.dr_var.trace_add("write", sync_dir1)
+            self.volume_tab.totalLengthFromToTo_m.trace_add("write", sync_dir1)
+            self.volume_tab.designSpeedFromToTo.trace_add("write", sync_dir1)
         except Exception as e:
             pass
         
-        # Trace Direction 2 (JinjuToMasan)
+        # Trace Direction 2 (ToToFrom)
         try:
-            if hasattr(self.volume_tab, 'tunnelGeometryJinjuToMasan'):
-                self.volume_tab.tunnelGeometryJinjuToMasan.avg_ar_var.trace_add("write", sync_dir2)
-                self.volume_tab.tunnelGeometryJinjuToMasan.avg_lp_var.trace_add("write", sync_dir2)
-                self.volume_tab.tunnelGeometryJinjuToMasan.dr_var.trace_add("write", sync_dir2)
-            self.volume_tab.totalLengthJinjuToMasan_m.trace_add("write", sync_dir2)
-            self.volume_tab.designSpeedJinjuToMasan.trace_add("write", sync_dir2)
+            if hasattr(self.volume_tab, 'tunnelGeometryToToFrom'):
+                self.volume_tab.tunnelGeometryToToFrom.avg_ar_var.trace_add("write", sync_dir2)
+                self.volume_tab.tunnelGeometryToToFrom.avg_lp_var.trace_add("write", sync_dir2)
+                self.volume_tab.tunnelGeometryToToFrom.dr_var.trace_add("write", sync_dir2)
+            self.volume_tab.totalLengthToToFrom_m.trace_add("write", sync_dir2)
+            self.volume_tab.designSpeedToToFrom.trace_add("write", sync_dir2)
         except Exception as e:
             pass
         
@@ -542,18 +542,18 @@ class JetFanTab(ttk.Frame):
         def delayed_sync():
             try:
                 # Re-register traces in case TunnelGeometry wasn't ready earlier
-                if hasattr(self.volume_tab, 'tunnelGeometryMasanToJinju'):
+                if hasattr(self.volume_tab, 'tunnelGeometryFromToTo'):
                     try:
-                        self.volume_tab.tunnelGeometryMasanToJinju.avg_ar_var.trace_add("write", sync_dir1)
-                        self.volume_tab.tunnelGeometryMasanToJinju.avg_lp_var.trace_add("write", sync_dir1)
-                        self.volume_tab.tunnelGeometryMasanToJinju.dr_var.trace_add("write", sync_dir1)
+                        self.volume_tab.tunnelGeometryFromToTo.avg_ar_var.trace_add("write", sync_dir1)
+                        self.volume_tab.tunnelGeometryFromToTo.avg_lp_var.trace_add("write", sync_dir1)
+                        self.volume_tab.tunnelGeometryFromToTo.dr_var.trace_add("write", sync_dir1)
                     except:
                         pass
-                if hasattr(self.volume_tab, 'tunnelGeometryJinjuToMasan'):
+                if hasattr(self.volume_tab, 'tunnelGeometryToToFrom'):
                     try:
-                        self.volume_tab.tunnelGeometryJinjuToMasan.avg_ar_var.trace_add("write", sync_dir2)
-                        self.volume_tab.tunnelGeometryJinjuToMasan.avg_lp_var.trace_add("write", sync_dir2)
-                        self.volume_tab.tunnelGeometryJinjuToMasan.dr_var.trace_add("write", sync_dir2)
+                        self.volume_tab.tunnelGeometryToToFrom.avg_ar_var.trace_add("write", sync_dir2)
+                        self.volume_tab.tunnelGeometryToToFrom.avg_lp_var.trace_add("write", sync_dir2)
+                        self.volume_tab.tunnelGeometryToToFrom.dr_var.trace_add("write", sync_dir2)
                     except:
                         pass
                 sync_dir1()
@@ -956,11 +956,11 @@ class ResultsTab(ttk.Frame):
             # 12. Pj (Jet fan pressure per fan)
             self._add_text("12. Jet fan pressure (per fan), ΔPj\n", "subheading")
             self._add_text("   Formula: ", "formula")
-            self._add_text("ΔPj = Kj × ρ/2 × Vj² × (Aj/Ar) × (1 - Vr/Vj) × η\n", "formula")
+            self._add_text("ΔPj = Kj × ρ × Vj² × (Aj/Ar) × (1 - Vr/Vj) × η\n", "formula")
             self._add_text(f"   Calculation: ΔPj = {results.Kj} × {inp.rho}/2 × {results.Vj}² × ({results.Aj}/{inp.Ar}) × (1 - {results.Vr}/{results.Vj}) × {inp.eta}\n")
             self._add_text(f"   Result: ", "result")
             self._add_text(f"ΔPj = {results.Pj} Pa\n\n", "result")
-
+    
             # 13. Z_raw
             self._add_text("13. Required number of jet fans, Z_raw\n", "subheading")
             self._add_text("   Formula: ", "formula")
@@ -1075,7 +1075,7 @@ class ResultsTab(ttk.Frame):
             self._add_text(f"Ar: {info.get('Ar', 0)} m², Lp: {info.get('Lp', 0)} m, Dr: {info.get('Dr', 0):.4f} m\n\n")
         self.text_widget.config(state="disabled")
     
-    def append_traffic_summary(self, traffic_logic_masan_jinju, traffic_logic_jinju_masan, volume_tab=None):
+    def append_traffic_summary(self, traffic_logic_From_To, traffic_logic_To_From, volume_tab=None):
         """Append traffic estimation summary for both directions."""
         self.text_widget.config(state="normal")
         self._add_text("\n" + "-"*80 + "\n", "heading")
@@ -1083,8 +1083,8 @@ class ResultsTab(ttk.Frame):
         self._add_text("-"*80 + "\n\n")
         
         # Get dynamic direction names from volume tab
-        dir1_name = "Masan"
-        dir2_name = "Jinju"
+        dir1_name = "From"
+        dir2_name = "To"
         if volume_tab:
             try:
                 dir1_name = volume_tab.dir1Name.get()
@@ -1095,10 +1095,10 @@ class ResultsTab(ttk.Frame):
         # Display Direction 1 (dir1_name → dir2_name)
         self._add_text(f"Direction: {dir1_name} → {dir2_name}\n", "subheading")
         self._add_text("-"*60 + "\n")
-        if not traffic_logic_masan_jinju.batch:
+        if not traffic_logic_From_To.batch:
             self._add_text("No traffic data computed.\n\n")
         else:
-            for entry in traffic_logic_masan_jinju.batch:
+            for entry in traffic_logic_From_To.batch:
                 if not entry.result:
                     continue
                 res = entry.result
@@ -1122,10 +1122,10 @@ class ResultsTab(ttk.Frame):
         # Display Direction 2 (dir2_name → dir1_name)
         self._add_text(f"Direction: {dir2_name} → {dir1_name}\n", "subheading")
         self._add_text("-"*60 + "\n")
-        if not traffic_logic_jinju_masan.batch:
+        if not traffic_logic_To_From.batch:
             self._add_text("No traffic data computed.\n\n")
         else:
-            for entry in traffic_logic_jinju_masan.batch:
+            for entry in traffic_logic_To_From.batch:
                 if not entry.result:
                     continue
                 res = entry.result
@@ -1149,6 +1149,337 @@ class ResultsTab(ttk.Frame):
         self.text_widget.config(state="disabled")
 
 
+class VentilationCapacityTab(ttk.Frame):
+    """Tab for displaying Ventilation Capacity calculations based on Jet Fan parameters."""
+
+    def __init__(self, parent, jet_fan_tab=None):
+        super().__init__(parent)
+        self.jet_fan_tab = jet_fan_tab
+        self.configure(padding="10 10 10 10")
+        
+        # Create scrollable text widget
+        canvas = tk.Canvas(self)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Main content frame
+        self.content_frame = scrollable_frame
+        
+        # Initialize data cells dictionary once
+        self.data_cells = {}
+        
+        # Initialize dropdown variables for each direction
+        if jet_fan_tab:
+            jet_keys = sorted(JET_AREA_MAP.keys())
+            jet_choices = [str(k) for k in jet_keys]
+            smallest_jet = jet_choices[0]
+            
+            eff_choices = [
+                "High efficiency (30 m/s)",
+                "Standard (34 m/s)",
+            ]
+        else:
+            jet_choices = ["630", "710", "1030", "1250", "1530"]
+            smallest_jet = "630"
+            eff_choices = ["High efficiency (30 m/s)", "Standard (34 m/s)"]
+        
+        self.jet_diameter_dir1_var = tk.StringVar(value=smallest_jet)
+        self.high_eff_dir1_var = tk.StringVar(value=eff_choices[0])
+        self.jet_diameter_dir2_var = tk.StringVar(value=smallest_jet)
+        self.high_eff_dir2_var = tk.StringVar(value=eff_choices[0])
+        
+        self.jet_choices = jet_choices
+        self.eff_choices = eff_choices
+        
+        self._build_layout()
+
+    def _build_layout(self):
+        """Build the ventilation capacity calculation display."""
+        # Title
+        title = ttk.Label(self.content_frame, text="Ventilation Capacity Analysis", 
+                         font=("Arial", 14, "bold"))
+        title.pack(anchor="w", pady=(0, 10))
+        
+        # Direction 1 card
+        card1 = ttk.LabelFrame(self.content_frame, text="Capacity: FROM → TO", padding="10 10 10 10")
+        card1.pack(fill="x", pady=5)
+        self._build_direction_card(card1, direction=1)
+        
+        # Direction 2 card
+        card2 = ttk.LabelFrame(self.content_frame, text="Capacity: TO → FROM", padding="10 10 10 10")
+        card2.pack(fill="x", pady=5)
+        self._build_direction_card(card2, direction=2)
+        
+        # Buttons
+        button_frame = ttk.Frame(self.content_frame)
+        button_frame.pack(fill="x", pady=10)
+        ttk.Button(button_frame, text="Calculate All", command=self._calculate_all).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Export Results", command=self._export_results).pack(side="left", padx=5)
+
+    def _build_direction_card(self, parent, direction):
+        """Build calculation table for a direction."""
+        # Add dropdowns above table
+        dropdown_frame = ttk.Frame(parent)
+        dropdown_frame.pack(fill="x", pady=(0, 10))
+        
+        # Jet diameter dropdown
+        ttk.Label(dropdown_frame, text="Jet Fan Diameter (mm):").pack(side="left", padx=(0, 5))
+        jet_var = self.jet_diameter_dir1_var if direction == 1 else self.jet_diameter_dir2_var
+        jet_combo = ttk.Combobox(dropdown_frame, textvariable=jet_var, 
+                                 values=self.jet_choices, state="readonly", width=10)
+        jet_combo.pack(side="left", padx=(0, 20))
+        
+        # Efficiency dropdown
+        ttk.Label(dropdown_frame, text="Efficiency:").pack(side="left", padx=(0, 5))
+        eff_var = self.high_eff_dir1_var if direction == 1 else self.high_eff_dir2_var
+        eff_combo = ttk.Combobox(dropdown_frame, textvariable=eff_var,
+                                values=self.eff_choices, state="readonly", width=25)
+        eff_combo.pack(side="left")
+        
+        # Create a separate frame for the grid table
+        table_frame = ttk.Frame(parent)
+        table_frame.pack(fill="both", expand=True)
+        
+        # Simplified header (removed Φ(mm), replaced Traffic Vol with Vt, removed Ur, added Lp, Ar, and Kj)
+        simplified_headers = [
+            "V(km/h)",
+            "Vt (m/s)",
+            "Qtreq(m³/s)",
+            "Vr(m/s)",
+            "Kj",
+            "Un(m/s)",
+            "λ",
+            "ξ",
+            "Ae(m²)",
+            "Lp(m)",
+            "Ar(m²)",
+            "η",
+            "Dr(m)",
+            "Z(fans)"
+        ]
+        
+        # Create grid display
+        for col, header in enumerate(simplified_headers):
+            label = ttk.Label(table_frame, text=header, font=("Arial", 9, "bold"),
+                            borderwidth=1, relief="solid", padding=5, background="#e0e0e0")
+            label.grid(row=0, column=col, sticky="nsew")
+        
+        # Add sample data rows (8 speeds: 10, 20, 30, 40, 50, 60, 70, 80)
+        speeds = [10, 20, 30, 40, 50, 60, 70, 80]
+        
+        # Initialize this direction's data cells if not already done
+        if direction not in self.data_cells:
+            self.data_cells[direction] = {}
+        
+        for row_idx, speed in enumerate(speeds, start=1):
+            self.data_cells[direction][speed] = {}
+            
+            # Speed column
+            ttk.Label(table_frame, text=str(speed), borderwidth=1, relief="solid", padding=5).grid(
+                row=row_idx, column=0, sticky="nsew")
+            
+            # Other columns - constants are readonly, others are normal
+            # Columns: 1-Vt(speed), 2-Qtreq, 3-Vr, 4-Kj, 5-Un, 6-λ, 7-ξ, 8-Ae, 9-Lp, 10-Ar, 11-η, 12-Dr, 13-Z
+            # Constants: cols 1, 4-8, 11-12 (Vt from speed, Kj, Un, λ, ξ, Ae, η, Dr) - Lp, Ar, Vr are editable
+            constant_columns = [1, 4, 5, 6, 7, 8, 11, 12]
+            
+            for col in range(1, len(simplified_headers)):
+                var = tk.StringVar(value="0.0")
+                is_constant = col in constant_columns
+                entry = ttk.Entry(table_frame, textvariable=var, width=10, 
+                                 state="readonly" if is_constant else "normal",
+                                 justify="center")
+                entry.grid(row=row_idx, column=col, sticky="nsew")
+                self.data_cells[direction][speed][col] = {"entry": entry, "var": var}
+                
+                # Add trace for Vr (col 3) to auto-update Kj (col 4)
+                if col == 3:  # Vr column
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_kj(d, s))
+                # Add trace for Lp (col 9) and Ar (col 10) to auto-update Dr (col 12)
+                elif col == 9:  # Lp column
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_dr(d, s))
+                elif col == 10:  # Ar column
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_dr(d, s))
+        
+        # Update values from jet_fan_tab
+        self._populate_constants(direction)
+        
+        # Trace jet_fan_tab variables to auto-update
+        if self.jet_fan_tab:
+            # Use default parameter to capture direction value in closure
+            self.jet_fan_tab.rho_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+            self.jet_fan_tab.xi_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+            self.jet_fan_tab.lamb_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+            self.jet_fan_tab.ae_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+            self.jet_fan_tab.eta_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+            self.jet_fan_tab.un_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+            self.jet_fan_tab.vt_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+            self.jet_fan_tab.jet_diameter_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+            
+            # Direction-specific variables
+            if direction == 1:
+                self.jet_fan_tab.ar_dir1_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+                self.jet_fan_tab.dr_dir1_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+                # Trace Lp from volume_tab
+                if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryFromToTo'):
+                    self.jet_fan_tab.volume_tab.tunnelGeometryFromToTo.avg_lp_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+            else:
+                self.jet_fan_tab.ar_dir2_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+                self.jet_fan_tab.dr_dir2_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+                # Trace Lp from volume_tab
+                if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryToToFrom'):
+                    self.jet_fan_tab.volume_tab.tunnelGeometryToToFrom.avg_lp_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+    
+    def _populate_constants(self, direction):
+        """Populate constants from JetFanTab into the cells."""
+        if not self.jet_fan_tab:
+            return
+        
+        try:
+            from vent_functions import Vt_MAP
+            speeds = [10, 20, 30, 40, 50, 60, 70, 80]
+            
+            # Get direction-specific variables
+            if direction == 1:
+                ar_var = self.jet_fan_tab.ar_dir1_var
+                dr_var = self.jet_fan_tab.dr_dir1_var
+                # Get Lp from volume_tab tunnel geometry
+                if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryFromToTo'):
+                    lp_var = self.jet_fan_tab.volume_tab.tunnelGeometryFromToTo.avg_lp_var
+                else:
+                    lp_var = tk.DoubleVar(value=0.0)
+            else:
+                ar_var = self.jet_fan_tab.ar_dir2_var
+                dr_var = self.jet_fan_tab.dr_dir2_var
+                # Get Lp from volume_tab tunnel geometry
+                if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryToToFrom'):
+                    lp_var = self.jet_fan_tab.volume_tab.tunnelGeometryToToFrom.avg_lp_var
+                else:
+                    lp_var = tk.DoubleVar(value=0.0)
+            
+            # Get shared constants
+            rho = float(self.jet_fan_tab.rho_var.get())
+            xi = float(self.jet_fan_tab.xi_var.get())
+            lamb = float(self.jet_fan_tab.lamb_var.get())
+            ae = float(self.jet_fan_tab.ae_var.get())
+            eta = float(self.jet_fan_tab.eta_var.get())
+            un = float(self.jet_fan_tab.un_var.get())
+            ar = float(ar_var.get())
+            lp = float(lp_var.get())
+            dr = float(dr_var.get())
+            
+            for row_idx, speed in enumerate(speeds, start=1):
+                cells = self.data_cells[direction][speed]
+                
+                # Get speed-dependent Vt from Vt_MAP
+                vt_speed = Vt_MAP.get(int(speed), 0.0)
+                
+                # Map constants to columns: 1-Vt(speed), 4-Kj, 5-Un, 6-λ, 7-ξ, 8-Ae, 9-Lp, 10-Ar, 11-η, 12-Dr
+                # Note: Kj will be calculated from Vr automatically via trace
+                constants = {
+                    1: (f"{vt_speed:.2f}", "Vt from speed"),  # Speed-dependent Vt
+                    4: ("0.0", "Kj"),  # Will be calculated from Vr
+                    5: (f"{un:.3f}", "Un"),
+                    6: (f"{lamb:.4f}", "λ"),
+                    7: (f"{xi:.3f}", "ξ"),
+                    8: (f"{ae:.4f}", "Ae"),
+                    9: (f"{lp:.4f}", "Lp"),
+                    10: (f"{ar:.4f}", "Ar"),
+                    11: (f"{eta:.3f}", "η"),
+                    12: (f"{dr:.4f}", "Dr"),
+                }
+                
+                for col, (value, desc) in constants.items():
+                    if col in cells:
+                        cells[col]["var"].set(value)
+        
+        except Exception as e:
+            print(f"Error populating constants: {e}")
+    
+    def _update_kj(self, direction, speed):
+        """Update Kj value based on Vr value for a specific row.
+        Kj = 0.99 if Vr<4, 0.92 if 4≤Vr<8, 0.9 if Vr≥8
+        """
+        try:
+            cells = self.data_cells[direction][speed]
+            # Get Vr (col 3)
+            vr = float(cells[3]["var"].get())
+            
+            # Calculate Kj based on Vr
+            if vr < 4:
+                kj = 0.99
+            elif vr < 8:
+                kj = 0.92
+            else:
+                kj = 0.9
+            
+            # Update Kj (col 4)
+            cells[4]["var"].set(f"{kj:.2f}")
+        except Exception as e:
+            print(f"Error updating Kj: {e}")
+    
+    def _update_dr(self, direction, speed):
+        """Update Dr value based on Lp and Ar values for a specific row."""
+        try:
+            cells = self.data_cells[direction][speed]
+            # Get Lp (col 9) and Ar (col 10)
+            lp = float(cells[9]["var"].get())
+            ar = float(cells[10]["var"].get())
+            
+            # Calculate Dr = (4 * Ar) / Lp
+            dr = (4.0 * ar / lp) if lp not in (0, 0.0) else 0.0
+            
+            # Update Dr (col 12)
+            cells[12]["var"].set(f"{dr:.4f}")
+        except Exception as e:
+            print(f"Error updating Dr: {e}")
+
+    def _calculate_all(self):
+        """Calculate ventilation capacity for both directions using Jet Fan tab constants."""
+        if not self.jet_fan_tab:
+            messagebox.showwarning("Warning", "Jet Fan tab not available")
+            return
+        
+        try:
+            # Get constants from Jet Fan tab
+            v_kmh = float(self.jet_fan_tab.v_kmh_var.get())
+            rho = float(self.jet_fan_tab.rho_var.get())
+            xi = float(self.jet_fan_tab.xi_var.get())
+            lamb = float(self.jet_fan_tab.lamb_var.get())
+            ae = float(self.jet_fan_tab.ae_var.get())
+            eta = float(self.jet_fan_tab.eta_var.get())
+            jet_diameter = int(self.jet_fan_tab.jet_diameter_var.get())
+            
+            messagebox.showinfo("Calculation", 
+                              f"Constants loaded:\nV={v_kmh} km/h\nρ={rho} kg/m³\nη={eta}")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
+    def _export_results(self):
+        """Export ventilation capacity results to file."""
+        try:
+            filename = filedialog.asksaveasfilename(
+                title="Export Ventilation Capacity",
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+            )
+            if filename:
+                messagebox.showinfo("Success", f"Exported to {filename}")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
+
 class JetFanCalculatorWindow(tk.Toplevel):
     """Separate window for Jet Fan calculations."""
     def __init__(self, parent):
@@ -1168,6 +1499,10 @@ class JetFanCalculatorWindow(tk.Toplevel):
 
         # Results tab
         notebook.add(result_tab, text="Results (summary)")
+        
+        # Ventilation Capacity tab
+        ventilation_capacity_tab = VentilationCapacityTab(notebook, jet_fan_tab=jet_fan_tab)
+        notebook.add(ventilation_capacity_tab, text="Ventilation Capacity")
 
 
 # ----------------------------
@@ -1177,7 +1512,7 @@ class SegmentsTableTransposed(ttk.Frame):
     """Placeholder for a segments table (direction-specific)."""
     def __init__(self, master, direction, segments, on_change, t, **kwargs):
         super().__init__(master, **kwargs)
-        ttk.Label(self, text=f"Segments table ({direction})").pack(anchor="w", padx=4, pady=4)
+        # ttk.Label(self, text=f"Segments table ({direction})").pack(anchor="w", padx=4, pady=4)
         # Future: implement real editable segments table.
 
 
@@ -1415,7 +1750,7 @@ class VentilationVolumeTab(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
         # Cache for Vehicle/hr, lane values keyed by direction and speed
-        self.vehicle_hr_lane_cache = {"masan_jinju": {}, "jinju_masan": {}}
+        self.vehicle_hr_lane_cache = {"From_To": {}, "To_From": {}}
         self._build_interface()
 
     def _build_interface(self):
@@ -1435,32 +1770,32 @@ class VentilationVolumeTab(ttk.Frame):
         }
 
         # State variables
-        self.sectionCountMasanToJinju = tk.IntVar(value=10)
-        self.sectionCountJinjuToMasan = tk.IntVar(value=10)
-        self.avgElevationMasanToJinju = tk.DoubleVar(value=0.0)
-        self.avgElevationJinjuToMasan = tk.DoubleVar(value=0.0)
+        self.sectionCountFromToTo = tk.IntVar(value=10)
+        self.sectionCountToToFrom = tk.IntVar(value=10)
+        self.avgElevationFromToTo = tk.DoubleVar(value=0.0)
+        self.avgElevationToToFrom = tk.DoubleVar(value=0.0)
         # Ventilation design speeds (80/100/120)
-        self.designSpeedMasanToJinju = tk.IntVar(value=80)
-        self.designSpeedJinjuToMasan = tk.IntVar(value=80)
-        self.tunnelArMasanToJinju = tk.DoubleVar(value=0.0)
-        self.tunnelLpMasanToJinju = tk.DoubleVar(value=0.0)
-        self.tunnelArJinjuToMasan = tk.DoubleVar(value=0.0)
-        self.tunnelLpJinjuToMasan = tk.DoubleVar(value=0.0)
+        self.designSpeedFromToTo = tk.IntVar(value=80)
+        self.designSpeedToToFrom = tk.IntVar(value=80)
+        self.tunnelArFromToTo = tk.DoubleVar(value=0.0)
+        self.tunnelLpFromToTo = tk.DoubleVar(value=0.0)
+        self.tunnelArToToFrom = tk.DoubleVar(value=0.0)
+        self.tunnelLpToToFrom = tk.DoubleVar(value=0.0)
         # Total length by direction (m)
-        self.totalLengthMasanToJinju_m = tk.DoubleVar(value=0.0)
-        self.totalLengthJinjuToMasan_m = tk.DoubleVar(value=0.0)
+        self.totalLengthFromToTo_m = tk.DoubleVar(value=0.0)
+        self.totalLengthToToFrom_m = tk.DoubleVar(value=0.0)
         
         # Road type for traffic flow calculation (1=National/Expressway, 2=Downtown)
-        self.roadTypeMasanToJinju = tk.StringVar(value="1 - National/Expressway (K=150)")
-        self.roadTypeJinjuToMasan = tk.StringVar(value="1 - National/Expressway (K=150)")
+        self.roadTypeFromToTo = tk.StringVar(value="1 - National/Expressway (K=150)")
+        self.roadTypeToToFrom = tk.StringVar(value="1 - National/Expressway (K=150)")
 
         # Example data containers
-        self.statsMasanToJinju = {"length_km": 0.0, "max_gradient": 0.0, "lanes": 1, "cap_per_lane": 0, "total_capacity": 0}
-        self.statsJinjuToMasan = {"length_km": 0.0, "max_gradient": 0.0, "lanes": 1, "cap_per_lane": 0, "total_capacity": 0}
-        self.trafficMasanToJinju = {"AADT": 0, "trucks_pct": 0}
-        self.trafficJinjuToMasan = {"AADT": 0, "trucks_pct": 0}
-        self.segmentsMasanToJinju = []
-        self.segmentsJinjuToMasan = []
+        self.statsFromToTo = {"length_km": 0.0, "max_gradient": 0.0, "lanes": 1, "cap_per_lane": 0, "total_capacity": 0}
+        self.statsToToFrom = {"length_km": 0.0, "max_gradient": 0.0, "lanes": 1, "cap_per_lane": 0, "total_capacity": 0}
+        self.trafficFromToTo = {"AADT": 0, "trucks_pct": 0}
+        self.trafficToToFrom = {"AADT": 0, "trucks_pct": 0}
+        self.segmentsFromToTo = []
+        self.segmentsToToFrom = []
 
         def handleSectionCountChange(direction, value):
             try:
@@ -1468,21 +1803,21 @@ class VentilationVolumeTab(ttk.Frame):
             except ValueError:
                 return
             v = max(1, min(50, v))
-            if direction == "MasanToJinju":
-                self.sectionCountMasanToJinju.set(v)
-                self._update_summary("MasanToJinju")
-            elif direction == "JinjuToMasan":
-                self.sectionCountJinjuToMasan.set(v)
-                self._update_summary("JinjuToMasan")
+            if direction == "FromToTo":
+                self.sectionCountFromToTo.set(v)
+                self._update_summary("FromToTo")
+            elif direction == "ToToFrom":
+                self.sectionCountToToFrom.set(v)
+                self._update_summary("ToToFrom")
 
         # Geometry callbacks (placeholders)
-        def onArChangeMasan(val):
+        def onArChangeFrom(val):
             pass
-        def onLpChangeMasan(val):
+        def onLpChangeFrom(val):
             pass
-        def onArChangeJinju(val):
+        def onArChangeTo(val):
             pass
-        def onLpChangeJinju(val):
+        def onLpChangeTo(val):
             pass
 
         # Create scrollable frame
@@ -1521,14 +1856,14 @@ class VentilationVolumeTab(ttk.Frame):
             sections_group1,
             from_=1,
             to=50,
-            textvariable=self.sectionCountMasanToJinju,
+            textvariable=self.sectionCountFromToTo,
             width=5,
-            command=lambda: handleSectionCountChange("MasanToJinju", self.sectionCountMasanToJinju.get()),
+            command=lambda: handleSectionCountChange("FromToTo", self.sectionCountFromToTo.get()),
         ).pack(side="left")
         elevation_group1 = ttk.Frame(controls1)
         elevation_group1.pack(side="left", padx=8)
         ttk.Label(elevation_group1, text=t["averageElevationLabel"] + ":").pack(side="left")
-        ttk.Entry(elevation_group1, textvariable=self.avgElevationMasanToJinju, width=10).pack(side="left")
+        ttk.Entry(elevation_group1, textvariable=self.avgElevationFromToTo, width=10).pack(side="left")
 
         # Ventilation Design Speed (80/100/120)
         speed_group1 = ttk.Frame(controls1)
@@ -1536,26 +1871,26 @@ class VentilationVolumeTab(ttk.Frame):
         ttk.Label(speed_group1, text="Ventilation Design Speed:").pack(side="left")
         ttk.Combobox(
             speed_group1,
-            textvariable=self.designSpeedMasanToJinju,
+            textvariable=self.designSpeedFromToTo,
             values=[80, 100, 120],
             state="readonly",
             width=6,
         ).pack(side="left")
-        SegmentsTableTransposed(card1, "MasanToJinju", self.segmentsMasanToJinju, lambda *_: self._update_summary("MasanToJinju"), t).pack(fill="x", pady=4)
-        self.tunnelGeometryMasanToJinju = TunnelGeometry(
+        SegmentsTableTransposed(card1, "FromToTo", self.segmentsFromToTo, lambda *_: self._update_summary("FromToTo"), t).pack(fill="x", pady=4)
+        self.tunnelGeometryFromToTo = TunnelGeometry(
             card1,
-            self.tunnelArMasanToJinju,
-            self.tunnelLpMasanToJinju,
-            self.sectionCountMasanToJinju,
-            self.segmentsMasanToJinju,
-            lambda *a: self._update_summary("MasanToJinju"),
-            onArChangeMasan,
-            onLpChangeMasan,
+            self.tunnelArFromToTo,
+            self.tunnelLpFromToTo,
+            self.sectionCountFromToTo,
+            self.segmentsFromToTo,
+            lambda *a: self._update_summary("FromToTo"),
+            onArChangeFrom,
+            onLpChangeFrom,
             t,
         )
-        self.tunnelGeometryMasanToJinju.pack(fill="x", pady=4)
-        self.summaryRowMasanToJinju = SummaryRow(card1, self.statsMasanToJinju, self.trafficMasanToJinju, t)
-        self.summaryRowMasanToJinju.pack(fill="x", pady=4)
+        self.tunnelGeometryFromToTo.pack(fill="x", pady=4)
+        self.summaryRowFromToTo = SummaryRow(card1, self.statsFromToTo, self.trafficFromToTo, t)
+        self.summaryRowFromToTo.pack(fill="x", pady=4)
 
         # Direction 2 card
         card2 = ttk.Frame(scrollable_frame, relief="raised", borderwidth=1, padding="10 10 10 10")
@@ -1578,14 +1913,14 @@ class VentilationVolumeTab(ttk.Frame):
             sections_group2,
             from_=1,
             to=50,
-            textvariable=self.sectionCountJinjuToMasan,
+            textvariable=self.sectionCountToToFrom,
             width=5,
-            command=lambda: handleSectionCountChange("JinjuToMasan", self.sectionCountJinjuToMasan.get()),
+            command=lambda: handleSectionCountChange("ToToFrom", self.sectionCountToToFrom.get()),
         ).pack(side="left")
         elevation_group2 = ttk.Frame(controls2)
         elevation_group2.pack(side="left", padx=8)
         ttk.Label(elevation_group2, text=t["averageElevationLabel"] + ":").pack(side="left")
-        ttk.Entry(elevation_group2, textvariable=self.avgElevationJinjuToMasan, width=10).pack(side="left")
+        ttk.Entry(elevation_group2, textvariable=self.avgElevationToToFrom, width=10).pack(side="left")
 
         # Ventilation Design Speed (80/100/120)
         speed_group2 = ttk.Frame(controls2)
@@ -1593,26 +1928,26 @@ class VentilationVolumeTab(ttk.Frame):
         ttk.Label(speed_group2, text="Ventilation Design Speed:").pack(side="left")
         ttk.Combobox(
             speed_group2,
-            textvariable=self.designSpeedJinjuToMasan,
+            textvariable=self.designSpeedToToFrom,
             values=[80, 100, 120],
             state="readonly",
             width=6,
         ).pack(side="left")
-        SegmentsTableTransposed(card2, "JinjuToMasan", self.segmentsJinjuToMasan, lambda *_: self._update_summary("JinjuToMasan"), t).pack(fill="x", pady=4)
-        self.tunnelGeometryJinjuToMasan = TunnelGeometry(
+        SegmentsTableTransposed(card2, "ToToFrom", self.segmentsToToFrom, lambda *_: self._update_summary("ToToFrom"), t).pack(fill="x", pady=4)
+        self.tunnelGeometryToToFrom = TunnelGeometry(
             card2,
-            self.tunnelArJinjuToMasan,
-            self.tunnelLpJinjuToMasan,
-            self.sectionCountJinjuToMasan,
-            self.segmentsJinjuToMasan,
-            lambda *a: self._update_summary("JinjuToMasan"),
-            onArChangeJinju,
-            onLpChangeJinju,
+            self.tunnelArToToFrom,
+            self.tunnelLpToToFrom,
+            self.sectionCountToToFrom,
+            self.segmentsToToFrom,
+            lambda *a: self._update_summary("ToToFrom"),
+            onArChangeTo,
+            onLpChangeTo,
             t,
         )
-        self.tunnelGeometryJinjuToMasan.pack(fill="x", pady=4)
-        self.summaryRowJinjuToMasan = SummaryRow(card2, self.statsJinjuToMasan, self.trafficJinjuToMasan, t)
-        self.summaryRowJinjuToMasan.pack(fill="x", pady=4)
+        self.tunnelGeometryToToFrom.pack(fill="x", pady=4)
+        self.summaryRowToToFrom = SummaryRow(card2, self.statsToToFrom, self.trafficToToFrom, t)
+        self.summaryRowToToFrom.pack(fill="x", pady=4)
 
         # Pack canvas and scrollbar
         canvas.pack(side="left", fill="both", expand=True)
@@ -1623,16 +1958,16 @@ class VentilationVolumeTab(ttk.Frame):
         self.traffic_card2_frame = None
         
         # Trace design speed changes to refresh summary
-        self.designSpeedMasanToJinju.trace_add("write", lambda *a: self._update_summary("MasanToJinju"))
-        self.designSpeedJinjuToMasan.trace_add("write", lambda *a: self._update_summary("JinjuToMasan"))
+        self.designSpeedFromToTo.trace_add("write", lambda *a: self._update_summary("FromToTo"))
+        self.designSpeedToToFrom.trace_add("write", lambda *a: self._update_summary("ToToFrom"))
 
         # Trace direction name changes to update traffic panel labels
         self.dir1Name.trace_add("write", lambda *a: self._update_traffic_labels())
         self.dir2Name.trace_add("write", lambda *a: self._update_traffic_labels())
 
         # Initial compute
-        self._update_summary("MasanToJinju")
-        self._update_summary("JinjuToMasan")
+        self._update_summary("FromToTo")
+        self._update_summary("ToToFrom")
 
         # Add traffic estimation panel after direction cards
         self._add_traffic_estimation_panel(scrollable_frame)
@@ -1641,18 +1976,18 @@ class VentilationVolumeTab(ttk.Frame):
         self._add_fiv_correction_panel(scrollable_frame)
 
     def _update_summary(self, direction):
-        if direction == "MasanToJinju":
-            segments = self.segmentsMasanToJinju
-            design_speed = int(self.designSpeedMasanToJinju.get())
-            stats = self.statsMasanToJinju
-            row = self.summaryRowMasanToJinju
-            count = int(self.sectionCountMasanToJinju.get())
+        if direction == "FromToTo":
+            segments = self.segmentsFromToTo
+            design_speed = int(self.designSpeedFromToTo.get())
+            stats = self.statsFromToTo
+            row = self.summaryRowFromToTo
+            count = int(self.sectionCountFromToTo.get())
         else:
-            segments = self.segmentsJinjuToMasan
-            design_speed = int(self.designSpeedJinjuToMasan.get())
-            stats = self.statsJinjuToMasan
-            row = self.summaryRowJinjuToMasan
-            count = int(self.sectionCountJinjuToMasan.get())
+            segments = self.segmentsToToFrom
+            design_speed = int(self.designSpeedToToFrom.get())
+            stats = self.statsToToFrom
+            row = self.summaryRowToToFrom
+            count = int(self.sectionCountToToFrom.get())
 
         # Ensure segment list has desired size
         while len(segments) < max(1, count):
@@ -1678,29 +2013,29 @@ class VentilationVolumeTab(ttk.Frame):
         stats.update(stats_update)
         row.set_data(stats=stats_update)
         # update total length variable for external consumers
-        if direction == "MasanToJinju":
-            self.totalLengthMasanToJinju_m.set(total_length_m)
+        if direction == "FromToTo":
+            self.totalLengthFromToTo_m.set(total_length_m)
         else:
-            self.totalLengthJinjuToMasan_m.set(total_length_m)
+            self.totalLengthToToFrom_m.set(total_length_m)
 
-    def get_params_for_jet(self, direction="MasanToJinju"):
-        if direction == "MasanToJinju":
+    def get_params_for_jet(self, direction="FromToTo"):
+        if direction == "FromToTo":
             # Use average Ar and Lp from segments
-            ar_avg = float(self.tunnelGeometryMasanToJinju.avg_ar_var.get()) if hasattr(self, 'tunnelGeometryMasanToJinju') else 0.0
-            lp_avg = float(self.tunnelGeometryMasanToJinju.avg_lp_var.get()) if hasattr(self, 'tunnelGeometryMasanToJinju') else 0.0
-            dr = float(self.tunnelGeometryMasanToJinju.dr_var.get()) if hasattr(self, 'tunnelGeometryMasanToJinju') else 0.0
-            Lr_m = float(self.totalLengthMasanToJinju_m.get())
+            ar_avg = float(self.tunnelGeometryFromToTo.avg_ar_var.get()) if hasattr(self, 'tunnelGeometryFromToTo') else 0.0
+            lp_avg = float(self.tunnelGeometryFromToTo.avg_lp_var.get()) if hasattr(self, 'tunnelGeometryFromToTo') else 0.0
+            dr = float(self.tunnelGeometryFromToTo.dr_var.get()) if hasattr(self, 'tunnelGeometryFromToTo') else 0.0
+            Lr_m = float(self.totalLengthFromToTo_m.get())
         else:
             # Use average Ar and Lp from segments
-            ar_avg = float(self.tunnelGeometryJinjuToMasan.avg_ar_var.get()) if hasattr(self, 'tunnelGeometryJinjuToMasan') else 0.0
-            lp_avg = float(self.tunnelGeometryJinjuToMasan.avg_lp_var.get()) if hasattr(self, 'tunnelGeometryJinjuToMasan') else 0.0
-            dr = float(self.tunnelGeometryJinjuToMasan.dr_var.get()) if hasattr(self, 'tunnelGeometryJinjuToMasan') else 0.0
-            Lr_m = float(self.totalLengthJinjuToMasan_m.get())
+            ar_avg = float(self.tunnelGeometryToToFrom.avg_ar_var.get()) if hasattr(self, 'tunnelGeometryToToFrom') else 0.0
+            lp_avg = float(self.tunnelGeometryToToFrom.avg_lp_var.get()) if hasattr(self, 'tunnelGeometryToToFrom') else 0.0
+            dr = float(self.tunnelGeometryToToFrom.dr_var.get()) if hasattr(self, 'tunnelGeometryToToFrom') else 0.0
+            Lr_m = float(self.totalLengthToToFrom_m.get())
         return {"Ar": ar_avg, "Lp": lp_avg, "Lr_m": Lr_m, "Dr": dr}
 
-    def get_vehicle_hr_lane(self, direction="MasanToJinju", speed_kmh=None):
+    def get_vehicle_hr_lane(self, direction="FromToTo", speed_kmh=None):
         """Return cached Vehicle/hr, lane for a given direction and speed."""
-        key = "masan_jinju" if direction == "MasanToJinju" else "jinju_masan"
+        key = "From_To" if direction == "FromToTo" else "To_From"
         cache = self.vehicle_hr_lane_cache.get(key, {})
         if speed_kmh is None:
             return None
@@ -1710,15 +2045,15 @@ class VentilationVolumeTab(ttk.Frame):
         except Exception:
             return None
 
-    def get_volume_summary(self, direction="MasanToJinju"):
-        if direction == "MasanToJinju":
-            stats = dict(self.statsMasanToJinju)
-            design_speed = int(self.designSpeedMasanToJinju.get())
+    def get_volume_summary(self, direction="FromToTo"):
+        if direction == "FromToTo":
+            stats = dict(self.statsFromToTo)
+            design_speed = int(self.designSpeedFromToTo.get())
             params = self.get_params_for_jet(direction)
             dir_label = f"{self.dir1Name.get()} → {self.dir2Name.get()}"
         else:
-            stats = dict(self.statsJinjuToMasan)
-            design_speed = int(self.designSpeedJinjuToMasan.get())
+            stats = dict(self.statsToToFrom)
+            design_speed = int(self.designSpeedToToFrom.get())
             params = self.get_params_for_jet(direction)
             dir_label = f"{self.dir2Name.get()} → {self.dir1Name.get()}"
         stats.update({
@@ -1743,10 +2078,10 @@ class VentilationVolumeTab(ttk.Frame):
             self.traffic_card2_label.config(text=f"{dir2_name} → {dir1_name}")
         
         # Update logic direction labels
-        if hasattr(self, 'traffic_logic_masan_jinju'):
-            self.traffic_logic_masan_jinju.direction = f"{dir1_name} → {dir2_name}"
-        if hasattr(self, 'traffic_logic_jinju_masan'):
-            self.traffic_logic_jinju_masan.direction = f"{dir2_name} → {dir1_name}"
+        if hasattr(self, 'traffic_logic_From_To'):
+            self.traffic_logic_From_To.direction = f"{dir1_name} → {dir2_name}"
+        if hasattr(self, 'traffic_logic_To_From'):
+            self.traffic_logic_To_From.direction = f"{dir2_name} → {dir1_name}"
 
     def _add_traffic_estimation_panel(self, parent):
         """Add traffic estimation module panels for both directions."""
@@ -1757,27 +2092,27 @@ class VentilationVolumeTab(ttk.Frame):
         dir2_name = self.dir2Name.get()
         
         # Initialize traffic estimation logic for both directions
-        self.traffic_logic_masan_jinju = TrafficEstimationLogic(direction=f"{dir1_name} → {dir2_name}")
-        self.traffic_logic_jinju_masan = TrafficEstimationLogic(direction=f"{dir2_name} → {dir1_name}")
-        self.traffic_rows_masan_jinju = []
-        self.traffic_rows_jinju_masan = []
+        self.traffic_logic_From_To = TrafficEstimationLogic(direction=f"{dir1_name} → {dir2_name}")
+        self.traffic_logic_To_From = TrafficEstimationLogic(direction=f"{dir2_name} → {dir1_name}")
+        self.traffic_rows_From_To = []
+        self.traffic_rows_To_From = []
 
         # Create Direction 1 card
         self._create_direction_traffic_card(
             parent, 
             f"{dir1_name} → {dir2_name}", 
-            "masan_jinju",
-            self.traffic_logic_masan_jinju,
-            self.traffic_rows_masan_jinju
+            "From_To",
+            self.traffic_logic_From_To,
+            self.traffic_rows_From_To
         )
 
         # Create Direction 2 card
         self._create_direction_traffic_card(
             parent, 
             f"{dir2_name} → {dir1_name}", 
-            "jinju_masan",
-            self.traffic_logic_jinju_masan,
-            self.traffic_rows_jinju_masan
+            "To_From",
+            self.traffic_logic_To_From,
+            self.traffic_rows_To_From
         )
 
     def _add_fiv_correction_panel(self, parent):
@@ -2115,7 +2450,7 @@ class VentilationVolumeTab(ttk.Frame):
         header_label.pack(anchor="w", pady=(2, 0))
         
         # Store reference to label for updates
-        if direction_key == "masan_jinju":
+        if direction_key == "From_To":
             self.traffic_card1_label = header_label
         else:
             self.traffic_card2_label = header_label
@@ -2141,10 +2476,10 @@ class VentilationVolumeTab(ttk.Frame):
         scrollbar.pack(side="right", fill="y")
 
         # Store references based on direction
-        if direction_key == "masan_jinju":
-            self.traffic_rows_frame_masan_jinju = traffic_rows_frame
+        if direction_key == "From_To":
+            self.traffic_rows_frame_From_To = traffic_rows_frame
         else:
-            self.traffic_rows_frame_jinju_masan = traffic_rows_frame
+            self.traffic_rows_frame_To_From = traffic_rows_frame
 
         # Header row with column labels
         header_labels = ["Year", "Passenger Vehicles", "Bus Small", "Bus Large", "Truck Small", "Truck Medium", "Truck Large", "Truck Special", "Action"]
@@ -2188,7 +2523,7 @@ class VentilationVolumeTab(ttk.Frame):
         
         # Road Type selector next to toggle button
         ttk.Label(density_control_frame, text="Road Type:").pack(side="left", padx=(0, 5))
-        road_type_var = self.roadTypeMasanToJinju if direction_key == "masan_jinju" else self.roadTypeJinjuToMasan
+        road_type_var = self.roadTypeFromToTo if direction_key == "From_To" else self.roadTypeToToFrom
         road_type_combo = ttk.Combobox(
             density_control_frame,
             textvariable=road_type_var,
@@ -2214,12 +2549,12 @@ class VentilationVolumeTab(ttk.Frame):
             ttk.Label(density_table_frame, text=header, font=("Arial", 9, "bold"), borderwidth=1, relief="solid", padding=5).grid(row=0, column=col, sticky="nsew")
         
         # Store reference to populate later
-        if direction_key == "masan_jinju":
-            self.density_table_frame_masan_jinju = density_table_frame
-            self.density_visible_masan_jinju = density_visible
+        if direction_key == "From_To":
+            self.density_table_frame_From_To = density_table_frame
+            self.density_visible_From_To = density_visible
         else:
-            self.density_table_frame_jinju_masan = density_table_frame
-            self.density_visible_jinju_masan = density_visible
+            self.density_table_frame_To_From = density_table_frame
+            self.density_visible_To_From = density_visible
 
         # Results frame
         results_frame = ttk.LabelFrame(traffic_card, text="Traffic Estimation Results", padding="10 10 10 10")
@@ -2251,10 +2586,10 @@ class VentilationVolumeTab(ttk.Frame):
         result_scroll.config(command=traffic_result_text.yview)
 
         # Store text widget reference
-        if direction_key == "masan_jinju":
-            self.traffic_result_text_masan_jinju = traffic_result_text
+        if direction_key == "From_To":
+            self.traffic_result_text_From_To = traffic_result_text
         else:
-            self.traffic_result_text_jinju_masan = traffic_result_text
+            self.traffic_result_text_To_From = traffic_result_text
 
     def _toggle_density_table(self, direction_key, visible_var, toggle_btn, table_frame):
         """Toggle visibility of traffic density table."""
@@ -2277,22 +2612,22 @@ class VentilationVolumeTab(ttk.Frame):
         from vent_functions import build_traffic_density_table
         
         # Get table frame
-        if direction_key == "masan_jinju":
-            table_frame = self.density_table_frame_masan_jinju
-            design_speed = int(self.designSpeedMasanToJinju.get())
+        if direction_key == "From_To":
+            table_frame = self.density_table_frame_From_To
+            design_speed = int(self.designSpeedFromToTo.get())
         else:
-            table_frame = self.density_table_frame_jinju_masan
-            design_speed = int(self.designSpeedJinjuToMasan.get())
+            table_frame = self.density_table_frame_To_From
+            design_speed = int(self.designSpeedToToFrom.get())
         
         # Get current parameters from volume summary
-        volume_summary = self.get_volume_summary(direction="MasanToJinju" if direction_key == "masan_jinju" else "JinjuToMasan")
+        volume_summary = self.get_volume_summary(direction="FromToTo" if direction_key == "From_To" else "ToToFrom")
         Imax = volume_summary.get("cap_per_lane", 2000)
         
         # Get road_type from user selection (extract integer from string like "1 - National/...")
-        if direction_key == "masan_jinju":
-            road_type_str = str(self.roadTypeMasanToJinju.get())
+        if direction_key == "From_To":
+            road_type_str = str(self.roadTypeFromToTo.get())
         else:
-            road_type_str = str(self.roadTypeJinjuToMasan.get())
+            road_type_str = str(self.roadTypeToToFrom.get())
         
         # Parse the integer from the string (handle both "1" and "1 - National/...")
         try:
@@ -2317,8 +2652,8 @@ class VentilationVolumeTab(ttk.Frame):
 
     def _add_traffic_row(self, direction_key):
         """Add a new row for traffic input."""
-        rows_frame = self.traffic_rows_frame_masan_jinju if direction_key == "masan_jinju" else self.traffic_rows_frame_jinju_masan
-        rows_list = self.traffic_rows_masan_jinju if direction_key == "masan_jinju" else self.traffic_rows_jinju_masan
+        rows_frame = self.traffic_rows_frame_From_To if direction_key == "From_To" else self.traffic_rows_frame_To_From
+        rows_list = self.traffic_rows_From_To if direction_key == "From_To" else self.traffic_rows_To_From
         
         row_num = len(rows_list) + 1
         
@@ -2436,8 +2771,8 @@ class VentilationVolumeTab(ttk.Frame):
     
     def _delete_traffic_row(self, index, direction_key):
         """Delete a traffic row."""
-        rows_frame = self.traffic_rows_frame_masan_jinju if direction_key == "masan_jinju" else self.traffic_rows_frame_jinju_masan
-        rows_list = self.traffic_rows_masan_jinju if direction_key == "masan_jinju" else self.traffic_rows_jinju_masan
+        rows_frame = self.traffic_rows_frame_From_To if direction_key == "From_To" else self.traffic_rows_frame_To_From
+        rows_list = self.traffic_rows_From_To if direction_key == "From_To" else self.traffic_rows_To_From
         
         if len(rows_list) <= 1:
             messagebox.showwarning("Cannot Delete", "At least one row must remain.")
@@ -2455,8 +2790,8 @@ class VentilationVolumeTab(ttk.Frame):
     
     def _rebuild_traffic_grid(self, direction_key):
         """Rebuild the traffic input grid after deletion."""
-        rows_frame = self.traffic_rows_frame_masan_jinju if direction_key == "masan_jinju" else self.traffic_rows_frame_jinju_masan
-        rows_list = self.traffic_rows_masan_jinju if direction_key == "masan_jinju" else self.traffic_rows_jinju_masan
+        rows_frame = self.traffic_rows_frame_From_To if direction_key == "From_To" else self.traffic_rows_frame_To_From
+        rows_list = self.traffic_rows_From_To if direction_key == "From_To" else self.traffic_rows_To_From
         
         # Clear all widgets except header
         for widget in rows_frame.grid_slaves():
@@ -2488,7 +2823,7 @@ class VentilationVolumeTab(ttk.Frame):
 
     def _import_traffic_csv(self, direction_key):
         """Import traffic data from CSV."""
-        traffic_logic = self.traffic_logic_masan_jinju if direction_key == "masan_jinju" else self.traffic_logic_jinju_masan
+        traffic_logic = self.traffic_logic_From_To if direction_key == "From_To" else self.traffic_logic_To_From
         
         filename = filedialog.askopenfilename(
             title="Import Traffic CSV",
@@ -2507,8 +2842,8 @@ class VentilationVolumeTab(ttk.Frame):
 
     def _compute_all_traffic(self, direction_key):
         """Compute traffic estimation for all rows."""
-        traffic_logic = self.traffic_logic_masan_jinju if direction_key == "masan_jinju" else self.traffic_logic_jinju_masan
-        rows_list = self.traffic_rows_masan_jinju if direction_key == "masan_jinju" else self.traffic_rows_jinju_masan
+        traffic_logic = self.traffic_logic_From_To if direction_key == "From_To" else self.traffic_logic_To_From
+        rows_list = self.traffic_rows_From_To if direction_key == "From_To" else self.traffic_rows_To_From
         
         try:
             # Clear previous batch
@@ -2548,7 +2883,7 @@ class VentilationVolumeTab(ttk.Frame):
 
     def _export_traffic_csv(self, direction_key):
         """Export traffic data to CSV."""
-        traffic_logic = self.traffic_logic_masan_jinju if direction_key == "masan_jinju" else self.traffic_logic_jinju_masan
+        traffic_logic = self.traffic_logic_From_To if direction_key == "From_To" else self.traffic_logic_To_From
         
         if not traffic_logic.batch:
             messagebox.showwarning("No Data", "No traffic data to export")
@@ -2570,7 +2905,7 @@ class VentilationVolumeTab(ttk.Frame):
 
     def _export_traffic_pdf(self, direction_key):
         """Export traffic data to PDF (via HTML browser preview)."""
-        traffic_logic = self.traffic_logic_masan_jinju if direction_key == "masan_jinju" else self.traffic_logic_jinju_masan
+        traffic_logic = self.traffic_logic_From_To if direction_key == "From_To" else self.traffic_logic_To_From
         
         if not traffic_logic.batch:
             messagebox.showwarning("No Data", "No traffic data to export")
@@ -2583,10 +2918,10 @@ class VentilationVolumeTab(ttk.Frame):
 
     def _clear_traffic(self, direction_key):
         """Clear all traffic estimation data."""
-        traffic_logic = self.traffic_logic_masan_jinju if direction_key == "masan_jinju" else self.traffic_logic_jinju_masan
-        text_widget = self.traffic_result_text_masan_jinju if direction_key == "masan_jinju" else self.traffic_result_text_jinju_masan
-        rows_frame = self.traffic_rows_frame_masan_jinju if direction_key == "masan_jinju" else self.traffic_rows_frame_jinju_masan
-        rows_list = self.traffic_rows_masan_jinju if direction_key == "masan_jinju" else self.traffic_rows_jinju_masan
+        traffic_logic = self.traffic_logic_From_To if direction_key == "From_To" else self.traffic_logic_To_From
+        text_widget = self.traffic_result_text_From_To if direction_key == "From_To" else self.traffic_result_text_To_From
+        rows_frame = self.traffic_rows_frame_From_To if direction_key == "From_To" else self.traffic_rows_frame_To_From
+        rows_list = self.traffic_rows_From_To if direction_key == "From_To" else self.traffic_rows_To_From
         
         traffic_logic.clear_batch()
         text_widget.delete(1.0, "end")
@@ -2602,8 +2937,8 @@ class VentilationVolumeTab(ttk.Frame):
 
     def _display_traffic_results(self, direction_key):
         """Display traffic estimation results in the text widget."""
-        traffic_logic = self.traffic_logic_masan_jinju if direction_key == "masan_jinju" else self.traffic_logic_jinju_masan
-        text_widget = self.traffic_result_text_masan_jinju if direction_key == "masan_jinju" else self.traffic_result_text_jinju_masan
+        traffic_logic = self.traffic_logic_From_To if direction_key == "From_To" else self.traffic_logic_To_From
+        text_widget = self.traffic_result_text_From_To if direction_key == "From_To" else self.traffic_result_text_To_From
         
         text_widget.delete(1.0, "end")
         if not traffic_logic.batch:
@@ -2628,10 +2963,10 @@ class VentilationVolumeTab(ttk.Frame):
                     return str(val)
 
             # Determine road type for PCU/car mapping
-            if direction_key == "masan_jinju":
-                road_type_str = str(self.roadTypeMasanToJinju.get()) if hasattr(self, "roadTypeMasanToJinju") else "1"
+            if direction_key == "From_To":
+                road_type_str = str(self.roadTypeFromToTo.get()) if hasattr(self, "roadTypeFromToTo") else "1"
             else:
-                road_type_str = str(self.roadTypeJinjuToMasan.get()) if hasattr(self, "roadTypeJinjuToMasan") else "1"
+                road_type_str = str(self.roadTypeToToFrom.get()) if hasattr(self, "roadTypeToToFrom") else "1"
             try:
                 road_type_val = int(road_type_str.split()[0])
             except (ValueError, AttributeError):
@@ -2802,7 +3137,7 @@ class VentilationVolumeTab(ttk.Frame):
                 from vent_functions import build_traffic_density_table
                 
                 # Get traffic density table for this entry
-                volume_summary = self.get_volume_summary(direction="MasanToJinju" if direction_key == "masan_jinju" else "JinjuToMasan")
+                volume_summary = self.get_volume_summary(direction="FromToTo" if direction_key == "From_To" else "ToToFrom")
                 Imax = volume_summary.get("cap_per_lane", 2000)
                 
                 # Build density table
@@ -2884,32 +3219,32 @@ class VentilationVolumeWindow(tk.Toplevel):
 
         # Translation-like dict
         t = {
-            "dir1Title": "Masan → Jinju",
-            "dir2Title": "Jinju → Masan",
+            "dir1Title": "From → To",
+            "dir2Title": "To → From",
             "numberOfSectionsLabel": "Number of sections",
             "averageElevationLabel": "Average elevation",
         }
 
         # State variables
-        self.sectionCountMasanToJinju = tk.IntVar(value=10)
-        self.sectionCountJinjuToMasan = tk.IntVar(value=10)
-        self.avgElevationMasanToJinju = tk.DoubleVar(value=0.0)
-        self.avgElevationJinjuToMasan = tk.DoubleVar(value=0.0)
+        self.sectionCountFromToTo = tk.IntVar(value=10)
+        self.sectionCountToToFrom = tk.IntVar(value=10)
+        self.avgElevationFromToTo = tk.DoubleVar(value=0.0)
+        self.avgElevationToToFrom = tk.DoubleVar(value=0.0)
         # Ventilation design speeds (80/100/120)
-        self.designSpeedMasanToJinju = tk.IntVar(value=80)
-        self.designSpeedJinjuToMasan = tk.IntVar(value=80)
-        self.tunnelArMasanToJinju = tk.DoubleVar(value=0.0)
-        self.tunnelLpMasanToJinju = tk.DoubleVar(value=0.0)
-        self.tunnelArJinjuToMasan = tk.DoubleVar(value=0.0)
-        self.tunnelLpJinjuToMasan = tk.DoubleVar(value=0.0)
+        self.designSpeedFromToTo = tk.IntVar(value=80)
+        self.designSpeedToToFrom = tk.IntVar(value=80)
+        self.tunnelArFromToTo = tk.DoubleVar(value=0.0)
+        self.tunnelLpFromToTo = tk.DoubleVar(value=0.0)
+        self.tunnelArToToFrom = tk.DoubleVar(value=0.0)
+        self.tunnelLpToToFrom = tk.DoubleVar(value=0.0)
 
         # Example data containers
-        self.statsMasanToJinju = {"length_km": 0, "max_gradient": 0}
-        self.statsJinjuToMasan = {"length_km": 0, "max_gradient": 0}
-        self.trafficMasanToJinju = {"AADT": 0, "trucks_pct": 0}
-        self.trafficJinjuToMasan = {"AADT": 0, "trucks_pct": 0}
-        self.segmentsMasanToJinju = []
-        self.segmentsJinjuToMasan = []
+        self.statsFromToTo = {"length_km": 0, "max_gradient": 0}
+        self.statsToToFrom = {"length_km": 0, "max_gradient": 0}
+        self.trafficFromToTo = {"AADT": 0, "trucks_pct": 0}
+        self.trafficToToFrom = {"AADT": 0, "trucks_pct": 0}
+        self.segmentsFromToTo = []
+        self.segmentsToToFrom = []
 
         def handleSectionCountChange(direction, value):
             try:
@@ -2917,19 +3252,19 @@ class VentilationVolumeWindow(tk.Toplevel):
             except ValueError:
                 return
             v = max(1, min(50, v))
-            if direction == "MasanToJinju":
-                self.sectionCountMasanToJinju.set(v)
-            elif direction == "JinjuToMasan":
-                self.sectionCountJinjuToMasan.set(v)
+            if direction == "FromToTo":
+                self.sectionCountFromToTo.set(v)
+            elif direction == "ToToFrom":
+                self.sectionCountToToFrom.set(v)
 
         # Geometry callbacks (placeholders)
-        def onArChangeMasan(val):
+        def onArChangeFrom(val):
             pass
-        def onLpChangeMasan(val):
+        def onLpChangeFrom(val):
             pass
-        def onArChangeJinju(val):
+        def onArChangeTo(val):
             pass
-        def onLpChangeJinju(val):
+        def onLpChangeTo(val):
             pass
 
         main_frame = ttk.Frame(self)
@@ -2952,14 +3287,14 @@ class VentilationVolumeWindow(tk.Toplevel):
             sections_group1,
             from_=1,
             to=50,
-            textvariable=self.sectionCountMasanToJinju,
+            textvariable=self.sectionCountFromToTo,
             width=5,
-            command=lambda: handleSectionCountChange("MasanToJinju", self.sectionCountMasanToJinju.get()),
+            command=lambda: handleSectionCountChange("FromToTo", self.sectionCountFromToTo.get()),
         ).pack(side="left")
         elevation_group1 = ttk.Frame(controls1)
         elevation_group1.pack(side="left", padx=8)
         ttk.Label(elevation_group1, text=t["averageElevationLabel"] + ":").pack(side="left")
-        ttk.Entry(elevation_group1, textvariable=self.avgElevationMasanToJinju, width=10).pack(side="left")
+        ttk.Entry(elevation_group1, textvariable=self.avgElevationFromToTo, width=10).pack(side="left")
 
         # Ventilation Design Speed (80/100/120)
         speed_group1 = ttk.Frame(controls1)
@@ -2967,24 +3302,24 @@ class VentilationVolumeWindow(tk.Toplevel):
         ttk.Label(speed_group1, text="Ventilation Design Speed:").pack(side="left")
         ttk.Combobox(
             speed_group1,
-            textvariable=self.designSpeedMasanToJinju,
+            textvariable=self.designSpeedFromToTo,
             values=[80, 100, 120],
             state="readonly",
             width=6,
         ).pack(side="left")
-        SegmentsTableTransposed(card1, "MasanToJinju", self.segmentsMasanToJinju, None, t).pack(fill="x", pady=4)
+        SegmentsTableTransposed(card1, "FromToTo", self.segmentsFromToTo, None, t).pack(fill="x", pady=4)
         TunnelGeometry(
             card1,
-            self.tunnelArMasanToJinju,
-            self.tunnelLpMasanToJinju,
-            self.sectionCountMasanToJinju,
-            self.segmentsMasanToJinju,
+            self.tunnelArFromToTo,
+            self.tunnelLpFromToTo,
+            self.sectionCountFromToTo,
+            self.segmentsFromToTo,
             None,
-            onArChangeMasan,
-            onLpChangeMasan,
+            onArChangeFrom,
+            onLpChangeFrom,
             t,
         ).pack(fill="x", pady=4)
-        SummaryRow(card1, self.statsMasanToJinju, self.trafficMasanToJinju, t).pack(fill="x", pady=4)
+        SummaryRow(card1, self.statsFromToTo, self.trafficFromToTo, t).pack(fill="x", pady=4)
 
         # Direction 2 card
         card2 = ttk.Frame(main_frame, relief="raised", borderwidth=1)
@@ -3001,14 +3336,14 @@ class VentilationVolumeWindow(tk.Toplevel):
             sections_group2,
             from_=1,
             to=50,
-            textvariable=self.sectionCountJinjuToMasan,
+            textvariable=self.sectionCountToToFrom,
             width=5,
-            command=lambda: handleSectionCountChange("JinjuToMasan", self.sectionCountJinjuToMasan.get()),
+            command=lambda: handleSectionCountChange("ToToFrom", self.sectionCountToToFrom.get()),
         ).pack(side="left")
         elevation_group2 = ttk.Frame(controls2)
         elevation_group2.pack(side="left", padx=8)
         ttk.Label(elevation_group2, text=t["averageElevationLabel"] + ":").pack(side="left")
-        ttk.Entry(elevation_group2, textvariable=self.avgElevationJinjuToMasan, width=10).pack(side="left")
+        ttk.Entry(elevation_group2, textvariable=self.avgElevationToToFrom, width=10).pack(side="left")
 
         # Ventilation Design Speed (80/100/120)
         speed_group2 = ttk.Frame(controls2)
@@ -3016,24 +3351,24 @@ class VentilationVolumeWindow(tk.Toplevel):
         ttk.Label(speed_group2, text="Ventilation Design Speed:").pack(side="left")
         ttk.Combobox(
             speed_group2,
-            textvariable=self.designSpeedJinjuToMasan,
+            textvariable=self.designSpeedToToFrom,
             values=[80, 100, 120],
             state="readonly",
             width=6,
         ).pack(side="left")
-        SegmentsTableTransposed(card2, "JinjuToMasan", self.segmentsJinjuToMasan, None, t).pack(fill="x", pady=4)
+        SegmentsTableTransposed(card2, "ToToFrom", self.segmentsToToFrom, None, t).pack(fill="x", pady=4)
         TunnelGeometry(
             card2,
-            self.tunnelArJinjuToMasan,
-            self.tunnelLpJinjuToMasan,
-            self.sectionCountJinjuToMasan,
-            self.segmentsJinjuToMasan,
+            self.tunnelArToToFrom,
+            self.tunnelLpToToFrom,
+            self.sectionCountToToFrom,
+            self.segmentsToToFrom,
             None,
-            onArChangeJinju,
-            onLpChangeJinju,
+            onArChangeTo,
+            onLpChangeTo,
             t,
         ).pack(fill="x", pady=4)
-        SummaryRow(card2, self.statsJinjuToMasan, self.trafficJinjuToMasan, t).pack(fill="x", pady=4)
+        SummaryRow(card2, self.statsToToFrom, self.trafficToToFrom, t).pack(fill="x", pady=4)
 
         # Pack main frame
         main_frame.pack(fill="both", expand=True)
@@ -3088,6 +3423,10 @@ if __name__ == "__main__":
     # Results tab
     notebook.add(result_tab, text="Results (summary)")
     
+    # Ventilation Capacity tab
+    ventilation_capacity_tab = VentilationCapacityTab(notebook, jet_fan_tab=jet_fan_tab)
+    notebook.add(ventilation_capacity_tab, text="Ventilation Capacity")
+    
     # Add buttons to button frame
     def compute_summary():
         """Compute and display summary in results tab."""
@@ -3104,13 +3443,13 @@ if __name__ == "__main__":
             result_tab.display_results_dual(
                 dir1_label, dir2_label, 
                 inp1, results1, inp2, results2,
-                ventilation_volume_tab.traffic_logic_masan_jinju,
-                ventilation_volume_tab.traffic_logic_jinju_masan
+                ventilation_volume_tab.traffic_logic_From_To,
+                ventilation_volume_tab.traffic_logic_To_From
             )
         # Append Ventilation Volume summaries for both directions
         infos = [
-            ventilation_volume_tab.get_volume_summary("MasanToJinju"),
-            ventilation_volume_tab.get_volume_summary("JinjuToMasan"),
+            ventilation_volume_tab.get_volume_summary("FromToTo"),
+            ventilation_volume_tab.get_volume_summary("ToToFrom"),
         ]
         result_tab.append_volume_summary(infos)
         # Note: Traffic summary is now integrated into display_results_dual
