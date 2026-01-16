@@ -1152,9 +1152,10 @@ class ResultsTab(ttk.Frame):
 class VentilationCapacityTab(ttk.Frame):
     """Tab for displaying Ventilation Capacity calculations based on Jet Fan parameters."""
 
-    def __init__(self, parent, jet_fan_tab=None):
+    def __init__(self, parent, jet_fan_tab=None, volume_tab=None):
         super().__init__(parent)
         self.jet_fan_tab = jet_fan_tab
+        self.volume_tab = volume_tab
         self.configure(padding="10 10 10 10")
         
         # Create scrollable text widget
@@ -1178,6 +1179,10 @@ class VentilationCapacityTab(ttk.Frame):
         
         # Initialize data cells dictionary once
         self.data_cells = {}
+        # Road type vars per direction
+        self.road_type_vars = {}
+        # One-time prompt guard when Vehicle/hr per lane is missing
+        self._traffic_prompt_shown = False
         
         # Initialize dropdown variables for each direction
         if jet_fan_tab:
@@ -1203,6 +1208,27 @@ class VentilationCapacityTab(ttk.Frame):
         self.eff_choices = eff_choices
         
         self._build_layout()
+
+    @staticmethod
+    def _safe_float(var, default=0.0):
+        """Convert tk variable to float, returning default on blank/invalid."""
+        try:
+            val = var.get()
+            return float(val) if val not in (None, "", " ") else default
+        except Exception:
+            return default
+
+    @staticmethod
+    def _parse_road_type(var, default=1):
+        """Return 1 or 2 from road type StringVar like '1 - ...' or '2 - ...'."""
+        try:
+            text = str(var.get()) if var else ""
+            first = text.strip().split(" ")[0]
+            if first in {"1", "2"}:
+                return int(first)
+        except Exception:
+            pass
+        return default
 
     def _build_layout(self):
         """Build the ventilation capacity calculation display."""
@@ -1251,7 +1277,7 @@ class VentilationCapacityTab(ttk.Frame):
         table_frame = ttk.Frame(parent)
         table_frame.pack(fill="both", expand=True)
         
-        # Simplified header (removed Φ(mm), replaced Traffic Vol with Vt, removed Ur, added Lp, Ar, and Kj)
+        # Simplified header - Lr is tunnel length (editable), Lp is segment length (variable), ρ is air density (constant 1.2)
         simplified_headers = [
             "V(km/h)",
             "Vt (m/s)",
@@ -1261,11 +1287,20 @@ class VentilationCapacityTab(ttk.Frame):
             "Un(m/s)",
             "λ",
             "ξ",
+            "ρ(kg/m³)",
             "Ae(m²)",
+            "Lr(m)",
             "Lp(m)",
             "Ar(m²)",
             "η",
             "Dr(m)",
+            "Q(vehicles/hr)",
+            "n(vehicles)",
+            "ΔPr(Pa)",
+            "ΔPm(Pa)",
+            "ΔPt(Pa)",
+            "ΔPq(Pa)",
+            "Z_raw",
             "Z(fans)"
         ]
         
@@ -1290,9 +1325,16 @@ class VentilationCapacityTab(ttk.Frame):
                 row=row_idx, column=0, sticky="nsew")
             
             # Other columns - constants are readonly, others are normal
-            # Columns: 1-Vt(speed), 2-Qtreq, 3-Vr, 4-Kj, 5-Un, 6-λ, 7-ξ, 8-Ae, 9-Lp, 10-Ar, 11-η, 12-Dr, 13-Z
-            # Constants: cols 1, 4-8, 11-12 (Vt from speed, Kj, Un, λ, ξ, Ae, η, Dr) - Lp, Ar, Vr are editable
-            constant_columns = [1, 4, 5, 6, 7, 8, 11, 12]
+            # Columns: 0-Speed, 1-Vt, 2-Qtreq, 3-Vr, 4-Kj, 5-Un, 6-λ, 7-ξ, 8-ρ, 9-Ae, 10-Lr, 11-Lp, 12-Ar, 13-η, 14-Dr, 15-Q, 16-n, 17-ΔPr, 18-ΔPm, 19-ΔPt, 20-ΔPq, 21-Z
+            # Constants (readonly): cols 1, 4-9, 13-15 (Vt, Kj, Un, λ, ξ, ρ, Ae, η, Dr, Q)
+            # Editable variables: cols 2, 3, 10, 11, 12 (Qtreq, Vr, Lr, Lp, Ar)
+            # Calculated columns (readonly): 4, 14, 15, 16, 17-20 (Kj, Dr, Q, n, ΔPr, ΔPm, ΔPt, ΔPq)
+            constant_columns = [1, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16, 17, 18, 19, 20]
+            
+            # Columns: 0-Speed, 1-Vt, 2-Qtreq, 3-Vr, 4-Kj, 5-Un, 6-λ, 7-ξ, 8-ρ, 9-Ae, 10-Lr, 11-Lp, 12-Ar, 13-η, 14-Dr, 15-Q, 16-n, 17-ΔPr, 18-ΔPm, 19-ΔPt, 20-ΔPq, 21-Z_raw, 22-Z
+            # Constants (readonly): cols 1, 4-9, 13-21 (Vt, Kj, Un, λ, ξ, ρ, Ae, η, Dr, Q, n, ΔPr, ΔPm, ΔPt, ΔPq, Z_raw, Z)
+            # Editable variables: cols 2, 3, 10, 11, 12 (Qtreq, Vr, Lr, Lp, Ar)
+            constant_columns = [1, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
             
             for col in range(1, len(simplified_headers)):
                 var = tk.StringVar(value="0.0")
@@ -1303,14 +1345,28 @@ class VentilationCapacityTab(ttk.Frame):
                 entry.grid(row=row_idx, column=col, sticky="nsew")
                 self.data_cells[direction][speed][col] = {"entry": entry, "var": var}
                 
-                # Add trace for Vr (col 3) to auto-update Kj (col 4)
+                # Add trace for Vr (col 3) to auto-update Kj (col 4) and pressure values
                 if col == 3:  # Vr column
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_kj(d, s))
-                # Add trace for Lp (col 9) and Ar (col 10) to auto-update Dr (col 12)
-                elif col == 9:  # Lp column
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_n(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
+                # Add trace for Lr (col 10) to auto-update Dr, n, and pressure values
+                elif col == 10:  # Lr column
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_dr(d, s))
-                elif col == 10:  # Ar column
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_n(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
+                # Add trace for Lp (col 11) to auto-update Dr and pressure values
+                elif col == 11:  # Lp column
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_dr(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
+                # Add trace for Ar (col 12) to auto-update Dr and pressure values
+                elif col == 12:  # Ar column
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_dr(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
+                # Add trace for Qtreq (col 2) to auto-update n and pressure values
+                elif col == 2:  # Qtreq column
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_n(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
         
         # Update values from jet_fan_tab
         self._populate_constants(direction)
@@ -1331,12 +1387,14 @@ class VentilationCapacityTab(ttk.Frame):
             if direction == 1:
                 self.jet_fan_tab.ar_dir1_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
                 self.jet_fan_tab.dr_dir1_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+                self.jet_fan_tab.lr_dir1_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
                 # Trace Lp from volume_tab
                 if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryFromToTo'):
                     self.jet_fan_tab.volume_tab.tunnelGeometryFromToTo.avg_lp_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
             else:
                 self.jet_fan_tab.ar_dir2_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
                 self.jet_fan_tab.dr_dir2_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+                self.jet_fan_tab.lr_dir2_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
                 # Trace Lp from volume_tab
                 if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryToToFrom'):
                     self.jet_fan_tab.volume_tab.tunnelGeometryToToFrom.avg_lp_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
@@ -1354,6 +1412,7 @@ class VentilationCapacityTab(ttk.Frame):
             if direction == 1:
                 ar_var = self.jet_fan_tab.ar_dir1_var
                 dr_var = self.jet_fan_tab.dr_dir1_var
+                lr_var = self.jet_fan_tab.lr_dir1_var
                 # Get Lp from volume_tab tunnel geometry
                 if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryFromToTo'):
                     lp_var = self.jet_fan_tab.volume_tab.tunnelGeometryFromToTo.avg_lp_var
@@ -1362,6 +1421,7 @@ class VentilationCapacityTab(ttk.Frame):
             else:
                 ar_var = self.jet_fan_tab.ar_dir2_var
                 dr_var = self.jet_fan_tab.dr_dir2_var
+                lr_var = self.jet_fan_tab.lr_dir2_var
                 # Get Lp from volume_tab tunnel geometry
                 if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryToToFrom'):
                     lp_var = self.jet_fan_tab.volume_tab.tunnelGeometryToToFrom.avg_lp_var
@@ -1376,6 +1436,7 @@ class VentilationCapacityTab(ttk.Frame):
             eta = float(self.jet_fan_tab.eta_var.get())
             un = float(self.jet_fan_tab.un_var.get())
             ar = float(ar_var.get())
+            lr = float(lr_var.get())
             lp = float(lp_var.get())
             dr = float(dr_var.get())
             
@@ -1385,24 +1446,42 @@ class VentilationCapacityTab(ttk.Frame):
                 # Get speed-dependent Vt from Vt_MAP
                 vt_speed = Vt_MAP.get(int(speed), 0.0)
                 
-                # Map constants to columns: 1-Vt(speed), 4-Kj, 5-Un, 6-λ, 7-ξ, 8-Ae, 9-Lp, 10-Ar, 11-η, 12-Dr
-                # Note: Kj will be calculated from Vr automatically via trace
+                # Map constants to columns: 0-Speed, 1-Vt, 2-Qtreq, 3-Vr, 4-Kj, 5-Un, 6-λ, 7-ξ, 8-ρ, 9-Ae, 10-Lr, 11-Lp, 12-Ar, 13-η, 14-Dr, 15-Q, 16-n, 17-ΔPr, 18-ΔPm, 19-ΔPt, 20-ΔPq, 21-Z_raw, 22-Z
                 constants = {
-                    1: (f"{vt_speed:.2f}", "Vt from speed"),  # Speed-dependent Vt
-                    4: ("0.0", "Kj"),  # Will be calculated from Vr
-                    5: (f"{un:.3f}", "Un"),
-                    6: (f"{lamb:.4f}", "λ"),
-                    7: (f"{xi:.3f}", "ξ"),
-                    8: (f"{ae:.4f}", "Ae"),
-                    9: (f"{lp:.4f}", "Lp"),
-                    10: (f"{ar:.4f}", "Ar"),
-                    11: (f"{eta:.3f}", "η"),
-                    12: (f"{dr:.4f}", "Dr"),
+                    1: (f"{vt_speed:.2f}", "Vt from speed"),  # Col 1
+                    2: ("0.0", "Qtreq"),  # Col 2 - Editable
+                    3: ("0.0", "Vr"),  # Col 3 - Editable
+                    4: ("0.0", "Kj"),  # Col 4 - Will be calculated from Vr
+                    5: ("2.5", "Un"),  # Col 5 - Natural wind speed = 2.5 m/s
+                    6: ("0.025", "λ"),  # Col 6 - Friction loss coefficient = 0.025
+                    7: ("0.6", "ξ"),  # Col 7 - Entrance loss coefficient = 0.6
+                    8: ("1.2", "ρ"),  # Col 8 - Air density = 1.2 kg/m³
+                    9: ("1.0751", "Ae"),  # Col 9 - Equivalent resistance area = 1.0751 m²
+                    10: (f"{lr:.4f}", "Lr"),  # Col 10 - Tunnel length from jet_fan_tab - editable
+                    11: (f"{lp:.4f}", "Lp"),  # Col 11 - Segment/section length from volume tab - editable
+                    12: (f"{ar:.4f}", "Ar"),  # Col 12
+                    13: (f"{eta:.3f}", "η"),  # Col 13
+                    14: (f"{dr:.4f}", "Dr"),  # Col 14
+                    15: ("0.0", "Q"),  # Col 15 - Will be calculated (Q from traffic estimation)
+                    16: ("0.0", "n"),  # Col 16 - Will be calculated (number of vehicles)
+                    17: ("0.0", "ΔPr"),  # Col 17 - Will be calculated
+                    18: ("0.0", "ΔPm"),  # Col 18 - Will be calculated
+                    19: ("0.0", "ΔPt"),  # Col 19 - Will be calculated
+                    20: ("0.0", "ΔPq"),  # Col 20 - Will be calculated
+                    21: ("0.0", "Z_raw"),  # Col 21 - Will be calculated
+                    22: ("0", "Z"),  # Col 22 - Will be calculated (integer)
                 }
                 
                 for col, (value, desc) in constants.items():
                     if col in cells:
                         cells[col]["var"].set(value)
+                
+                # Calculate derived values (Kj, Dr, Q, n, pressures, jet fans) after setting all constants
+                self._update_kj(direction, speed)
+                self._update_dr(direction, speed)
+                self._update_q(direction, speed)
+                self._update_n(direction, speed)
+                self._update_pressures(direction, speed)
         
         except Exception as e:
             print(f"Error populating constants: {e}")
@@ -1433,20 +1512,255 @@ class VentilationCapacityTab(ttk.Frame):
         """Update Dr value based on Lp and Ar values for a specific row."""
         try:
             cells = self.data_cells[direction][speed]
-            # Get Lp (col 9) and Ar (col 10)
-            lp = float(cells[9]["var"].get())
-            ar = float(cells[10]["var"].get())
+            # Get Lp (col 11) and Ar (col 12)
+            lp = float(cells[11]["var"].get())
+            ar = float(cells[12]["var"].get())
             
             # Calculate Dr = (4 * Ar) / Lp
             dr = (4.0 * ar / lp) if lp not in (0, 0.0) else 0.0
             
-            # Update Dr (col 12)
-            cells[12]["var"].set(f"{dr:.4f}")
+            # Update Dr (col 14)
+            cells[14]["var"].set(f"{dr:.4f}")
         except Exception as e:
             print(f"Error updating Dr: {e}")
+    
+    def _update_q(self, direction, speed):
+        """Update Q value from traffic estimation results (actual Vehicle/hr, lane).
+        Q is the actual vehicle count per hour per lane from traffic estimation.
+        """
+        try:
+            cells = self.data_cells[direction][speed]
+            
+            # Get actual Vehicle/hr, lane from traffic estimation cache
+            direction_key = "From_To" if direction == 1 else "To_From"
+            cache = self.volume_tab.vehicle_hr_lane_cache if self.volume_tab else {}
+            vehicle_hr_lane = cache.get(direction_key, {}).get(int(speed), 0.0)
+            
+            # Update Q (col 15) with the actual Vehicle/hr, lane value from traffic estimation
+            cells[15]["var"].set(f"{vehicle_hr_lane:.1f}")
+
+            # Cascade updates so n, pressures, and jet fans refresh immediately
+            self._update_n(direction, speed)
+            self._update_pressures(direction, speed)
+            self._update_jet_fans(direction, speed)
+        except Exception as e:
+            print(f"Error updating Q: {e}")
+    
+    def _update_n(self, direction, speed):
+        """Update n using compute_n with Vehicle/hr·lane from Traffic Estimation when available."""
+        try:
+            cells = self.data_cells[direction][speed]
+            
+            # Get values from cells
+            vt = self._safe_float(cells[1]["var"])  # Vt (col 1)
+            qtreq = self._safe_float(cells[2]["var"])  # Qtreq (col 2)
+            ar = self._safe_float(cells[12]["var"])  # Ar (col 12)
+            lr = self._safe_float(cells[10]["var"])  # Lr (col 10)
+            rho = self._safe_float(cells[8]["var"])  # ρ (col 8)
+            xi = self._safe_float(cells[7]["var"])  # ξ (col 7)
+            lamb = self._safe_float(cells[6]["var"])  # λ (col 6)
+            dr = self._safe_float(cells[14]["var"])  # Dr (col 14)
+            ae = self._safe_float(cells[9]["var"])  # Ae (col 9)
+            eta = self._safe_float(cells[13]["var"])  # η (col 13)
+            
+            # Get direction-specific parameters
+            if not self.jet_fan_tab:
+                return
+            
+            lanes = int(self._safe_float(self.jet_fan_tab.lanes_dir1_var if direction == 1 else self.jet_fan_tab.lanes_dir2_var, 0))
+            imax = self._safe_float(self.jet_fan_tab.imax_dir1_var if direction == 1 else self.jet_fan_tab.imax_dir2_var, 0)
+            road_type_var = self.road_type_vars.get(direction)
+            road_type = self._parse_road_type(road_type_var, default=1)
+            
+            # Prefer current Q value in the table; fallback to cached traffic estimation
+            vehicle_hr_lane = self._safe_float(cells[15]["var"], 0.0)  # Q column (vehicles/hr·lane)
+            if vehicle_hr_lane <= 0 and self.volume_tab:
+                direction_key = "From_To" if direction == 1 else "To_From"
+                cache = self.volume_tab.vehicle_hr_lane_cache if self.volume_tab else {}
+                vehicle_hr_lane = cache.get(direction_key, {}).get(int(speed), 0.0)
+            
+            # Use compute_n from vent_functions to calculate number of vehicles
+            from vent_functions import TunnelVentInputs, compute_n
+            inp = TunnelVentInputs(
+                V_kmh=speed,
+                Qtreq=qtreq,
+                Imax=imax,
+                road_type=road_type,
+                lanes=lanes,
+                Ar=ar,
+                Lr=lr,
+                rho=rho,
+                xi=xi,
+                lamb=lamb,
+                Dr=dr,
+                Ae=ae,
+                jet_diameter=1030,  # Default (not used in compute_n)
+                high_efficiency=False,  # Default (not used in compute_n)
+                eta=eta,
+                vehicle_hr_lane=vehicle_hr_lane
+            )
+            
+            n = compute_n(inp, vt)
+            
+            # Update n column (col 16)
+            cells[16]["var"].set(f"{n:.0f}")
+
+            # Refresh pressures to reflect new n value
+            self._update_pressures(direction, speed)
+            self._update_jet_fans(direction, speed)
+            
+        except Exception as e:
+            print(f"Error updating n: {e}")
+    
+    def _recalc_all_rows(self, direction):
+        """Recompute Kj, Dr, Q, n, pressures and jet fans for all speeds in a direction."""
+        try:
+            if direction not in self.data_cells:
+                return
+            for speed in self.data_cells[direction].keys():
+                self._update_kj(direction, speed)
+                self._update_dr(direction, speed)
+                self._update_q(direction, speed)
+                self._update_n(direction, speed)
+                self._update_pressures(direction, speed)
+                self._update_jet_fans(direction, speed)
+        except Exception as e:
+            print(f"Error recalculating rows: {e}")
+
+    def _update_pressures(self, direction, speed):
+        """Update pressure values (ΔPr, ΔPm, ΔPt, ΔPq) based on current values."""
+        try:
+            cells = self.data_cells[direction][speed]
+            
+            # Get values from cells
+            vt = self._safe_float(cells[1]["var"])  # Vt (col 1)
+            qtreq = self._safe_float(cells[2]["var"])  # Qtreq (col 2)
+            vr = self._safe_float(cells[3]["var"])  # Vr (col 3)
+            un = self._safe_float(cells[5]["var"])  # Un (col 5)
+            lamb = self._safe_float(cells[6]["var"])  # λ (col 6)
+            xi = self._safe_float(cells[7]["var"])  # ξ (col 7)
+            rho = self._safe_float(cells[8]["var"])  # ρ (col 8)
+            ae = self._safe_float(cells[9]["var"])  # Ae (col 9)
+            lr = self._safe_float(cells[10]["var"])  # Lr - Tunnel length (col 10)
+            lp = self._safe_float(cells[11]["var"])  # Lp - Segment length (col 11)
+            ar = self._safe_float(cells[12]["var"])  # Ar (col 12)
+            dr = self._safe_float(cells[14]["var"])  # Dr (col 14)
+            n = self._safe_float(cells[16]["var"])  # n - Number of vehicles (col 16)
+            
+            # Calculate common factor: (1 + ξ + λ*Lr/Dr) * ρ / 2
+            # Use Lr (tunnel length) for this calculation
+            if dr > 0:
+                common_factor = (1 + xi + lamb * lr / dr) * rho / 2.0
+            else:
+                common_factor = 0.0
+            
+            # ΔPr = common_factor * Vr²
+            delta_pr = common_factor * (vr ** 2)
+            
+            # ΔPm = common_factor * Un²
+            delta_pm = common_factor * (un ** 2)
+            
+            # ΔPt = sign(Vt−Vr) × ρ/2 × (Ae/Ar) × n × (Vt−Vr)²
+            # where n is the number of vehicles in tunnel
+            if vt == vr:
+                delta_pt = 0.0
+            else:
+                sign = 1.0 if vt > vr else -1.0
+                if ar > 0:
+                    delta_pt = sign * rho / 2.0 * ae / ar * n * (vt - vr) ** 2
+                else:
+                    delta_pt = 0.0
+            
+            # ΔPq = ΔPr + ΔPm - ΔPt
+            delta_pq = delta_pr + delta_pm - delta_pt
+            
+            # Update pressure cells (cols 17-20)
+            cells[17]["var"].set(f"{delta_pr:.4f}")  # ΔPr (col 17)
+            cells[18]["var"].set(f"{delta_pm:.4f}")  # ΔPm (col 18)
+            cells[19]["var"].set(f"{delta_pt:.4f}")  # ΔPt (col 19)
+            cells[20]["var"].set(f"{delta_pq:.4f}")  # ΔPq (col 20)
+            
+        except Exception as e:
+            print(f"Error updating pressures: {e}")
+
+    def _update_jet_fans(self, direction, speed):
+        """Update Z_raw and Z (Z_applied) using formulas from vent_functions.py"""
+        try:
+            cells = self.data_cells[direction][speed]
+        
+            # Get all required values
+            vt = self._safe_float(cells[1]["var"])  # Vt (col 1)
+            vr = self._safe_float(cells[3]["var"])  # Vr (col 3)
+            kj = self._safe_float(cells[4]["var"])  # Kj (col 4)
+            rho = self._safe_float(cells[8]["var"])  # ρ (col 8)
+            ae = self._safe_float(cells[9]["var"])  # Ae (col 9)
+            ar = self._safe_float(cells[12]["var"])  # Ar (col 12)
+            eta = self._safe_float(cells[13]["var"])  # η (col 13)
+            delta_pq = self._safe_float(cells[20]["var"])  # ΔPq (col 20)
+        
+            # Get jet fan parameters
+            if not self.jet_fan_tab:
+                return
+        
+            jet_diameter = int(self.jet_diameter_dir1_var.get() if direction == 1 else self.jet_diameter_dir2_var.get())
+            high_eff_str = self.high_eff_dir1_var.get() if direction == 1 else self.high_eff_dir2_var.get()
+            high_efficiency = "High efficiency" in high_eff_str
+        
+            # Import from vent_functions
+            from vent_functions import JET_AREA_MAP
+        
+            # Get Aj from lookup
+            if jet_diameter not in JET_AREA_MAP:
+                aj = 0.83  # Default to 1030mm
+            else:
+                aj = JET_AREA_MAP[jet_diameter]
+        
+            # Calculate Vj
+            vj = 30.0 if high_efficiency else 34.0
+        
+            # Calculate ΔPj using the formula from vent_functions
+            # ΔPj = Kj * ρ * Vj^2 * Aj/Ar * (1 - Vr/Vj) * η
+            if vj > 0 and ar > 0:
+                delta_pj = round(kj * rho * vj ** 2 * aj / ar * (1 - vr / vj) * eta, 4)
+            else:
+                delta_pj = 0.0
+        
+            # Calculate Z_raw = ΔPq / ΔPj
+            if delta_pj > 0:
+                z_raw = round(delta_pq / delta_pj, 2)
+            else:
+                z_raw = 0.0
+        
+            # Calculate Z_applied (ceiling of z_raw if > 0, else 0)
+            if z_raw <= 0:
+                z_applied = 0
+            else:
+                import math
+                z_applied = math.ceil(z_raw)
+        
+            # Update Z_raw (col 21) and Z (col 22)
+            cells[21]["var"].set(f"{z_raw:.2f}")
+            cells[22]["var"].set(str(z_applied))
+        
+        except Exception as e:
+            print(f"Error updating jet fans: {e}")
 
     def _calculate_all(self):
-        """Calculate ventilation capacity for both directions using Jet Fan tab constants."""
+        """Calculate ventilation capacity for both directions. Requires traffic estimation first."""
+        # Check if traffic estimation results are available
+        cache = self.volume_tab.vehicle_hr_lane_cache if self.volume_tab else {}
+        has_from_to_data = bool(cache.get("From_To", {}))
+        has_to_from_data = bool(cache.get("To_From", {}))
+        
+        if not (has_from_to_data or has_to_from_data):
+            messagebox.showwarning(
+                "Traffic Estimation Required",
+                "Please compute traffic estimation results first (Estimate Traffic Volume tab).\n\n"
+                "The ventilation capacity calculations require Vehicle/hr per lane values\n"
+                "from the traffic estimation results."
+            )
+            return
+        
         if not self.jet_fan_tab:
             messagebox.showwarning("Warning", "Jet Fan tab not available")
             return
@@ -1460,11 +1774,58 @@ class VentilationCapacityTab(ttk.Frame):
             ae = float(self.jet_fan_tab.ae_var.get())
             eta = float(self.jet_fan_tab.eta_var.get())
             jet_diameter = int(self.jet_fan_tab.jet_diameter_var.get())
+            un = float(self.jet_fan_tab.un_var.get())
             
-            messagebox.showinfo("Calculation", 
-                              f"Constants loaded:\nV={v_kmh} km/h\nρ={rho} kg/m³\nη={eta}")
+            # Build detailed message with all constants
+            msg = "Loaded Constants:\n\n"
+            msg += f"V (design speed) = {v_kmh} km/h\n"
+            msg += f"ρ (air density) = {rho} kg/m³\n"
+            msg += f"ξ (entrance loss) = {xi}\n"
+            msg += f"λ (friction loss) = {lamb}\n"
+            msg += f"Ae (equivalent area) = {ae} m²\n"
+            msg += f"η (efficiency) = {eta}\n"
+            msg += f"Un (natural wind) = {un} m/s\n"
+            msg += f"Jet Diameter = {jet_diameter} mm\n\n"
+            msg += "Tables updated with all calculations.\n"
+            msg += "Road type can be changed per direction to recalculate Q and dependent values."
+            
+            messagebox.showinfo("Calculation Complete", msg)
         except Exception as e:
             messagebox.showerror("Error", str(e))
+
+    def _refresh_q_values_in_tables(self, direction_key):
+        """Refresh Q (and subsequently n, pressures and jet fans) in Ventilation Capacity tables after traffic estimation."""
+        try:
+            direction = 1 if direction_key == "From_To" else 2
+            
+            # Check if data_cells exists and has data for this direction
+            if not hasattr(self, 'data_cells') or direction not in self.data_cells:
+                print(f"DEBUG: No data_cells for direction {direction}")
+                return
+            
+            # Get cache from volume_tab
+            if not self.volume_tab:
+                print("DEBUG: No volume_tab reference")
+                return
+                
+            cache = self.volume_tab.vehicle_hr_lane_cache
+            cache_data = cache.get(direction_key, {})
+            print(f"DEBUG: Refreshing Q for direction {direction} ({direction_key}), cache: {cache_data}")
+            
+            # Update Q and dependent calculations for all speeds
+            for speed in list(self.data_cells[direction].keys()):
+                cached_value = cache_data.get(int(speed), 0.0)
+                print(f"DEBUG: Speed {speed} - cached Q value: {cached_value}")
+                self._update_q(direction, speed)
+                self._update_n(direction, speed)
+                self._update_pressures(direction, speed)
+                self._update_jet_fans(direction, speed)
+                
+            print(f"DEBUG: Finished refreshing Q values for direction {direction}")
+        except Exception as e:
+            import traceback
+            print(f"Error refreshing Q values in tables: {e}")
+            traceback.print_exc()
 
     def _export_results(self):
         """Export ventilation capacity results to file."""
@@ -1670,7 +2031,8 @@ class TunnelGeometry(ttk.LabelFrame):
                 if key == "lanes":
                     var.trace_add("write", lambda *a, idx=i, v=var, k=key: self._update_segment(idx, k, self._sanitize_lanes(v.get())))
                 else:
-                    var.trace_add("write", lambda *a, idx=i, v=var, k=key: self._update_segment(idx, k, self._safe_float(v.get(), 0.0)))
+                    # Pass the variable itself so _safe_float can tolerate blanks safely
+                    var.trace_add("write", lambda *a, idx=i, v=var, k=key: self._update_segment(idx, k, self._safe_float(v, 0.0)))
 
                 row_vars.append(var)
             self._cell_vars.append(row_vars)
@@ -1747,8 +2109,9 @@ class SummaryRow(ttk.Frame):
 
 class VentilationVolumeTab(ttk.Frame):
     """Tab for Calculate Ventilation Volume functionality."""
-    def __init__(self, parent):
+    def __init__(self, parent, jet_fan_tab=None):
         super().__init__(parent)
+        self.jet_fan_tab = jet_fan_tab
         # Cache for Vehicle/hr, lane values keyed by direction and speed
         self.vehicle_hr_lane_cache = {"From_To": {}, "To_From": {}}
         self._build_interface()
@@ -2849,6 +3212,26 @@ class VentilationVolumeTab(ttk.Frame):
             # Clear previous batch
             traffic_logic.clear_batch()
             
+            # Get tunnel parameters from jet fan tab for pressure calculations
+            Qtreq = Ar = Lr = Dr = rho = xi = lamb = Ae = Vt = lanes = 0
+            V_kmh = 10.0
+            if self.jet_fan_tab:
+                try:
+                    Qtreq = float(self.jet_fan_tab.qtreq_dir1_var.get() if direction_key == "From_To" else self.jet_fan_tab.qtreq_dir2_var.get())
+                    Ar = float(self.jet_fan_tab.ar_dir1_var.get() if direction_key == "From_To" else self.jet_fan_tab.ar_dir2_var.get())
+                    Lr = float(self.jet_fan_tab.lr_dir1_var.get() if direction_key == "From_To" else self.jet_fan_tab.lr_dir2_var.get())
+                    Dr = float(self.jet_fan_tab.dr_dir1_var.get() if direction_key == "From_To" else self.jet_fan_tab.dr_dir2_var.get())
+                    rho = float(self.jet_fan_tab.rho_var.get())
+                    xi = float(self.jet_fan_tab.xi_var.get())
+                    lamb = float(self.jet_fan_tab.lamb_var.get())
+                    Ae = float(self.jet_fan_tab.ae_var.get())
+                    lanes = int(self.jet_fan_tab.lanes_dir1_var.get() if direction_key == "From_To" else self.jet_fan_tab.lanes_dir2_var.get())
+                    V_kmh = float(self.jet_fan_tab.v_kmh_var.get())
+                    from vent_functions import Vt_MAP
+                    Vt = Vt_MAP.get(int(V_kmh), Vt_MAP.get(10))
+                except Exception:
+                    Vt = 0.0
+            
             for row_data in rows_list:
                 vars_dict = row_data['vars']
                 year = int(vars_dict['year'].get())
@@ -2865,6 +3248,12 @@ class VentilationVolumeTab(ttk.Frame):
                 passenger_diesel = passenger_vehicles * 0.40
                 passenger_aadt = passenger_vehicles
                 
+                # Get vehicle/hr per lane from cache (if available from density table)
+                vehicle_hr_lane = 0.0
+                if hasattr(self, 'vehicle_hr_lane_cache'):
+                    direction_cache = self.vehicle_hr_lane_cache.get(direction_key, {})
+                    vehicle_hr_lane = direction_cache.get(int(V_kmh), 0.0)
+                
                 result = traffic_logic.add_manual_entry(
                     year=year,
                     passenger_aadt=passenger_aadt,
@@ -2874,6 +3263,17 @@ class VentilationVolumeTab(ttk.Frame):
                     truck_medium=truck_medium,
                     truck_large=truck_large,
                     truck_special=truck_special,
+                    Qtreq=Qtreq,
+                    Ar=Ar,
+                    Lr=Lr,
+                    Dr=Dr,
+                    rho=rho,
+                    xi=xi,
+                    lamb=lamb,
+                    Ae=Ae,
+                    Vt=Vt,
+                    lanes=lanes,
+                    vehicle_hr_lane=vehicle_hr_lane,
                 )
             
             self._display_traffic_results(direction_key)
@@ -3181,8 +3581,9 @@ class VentilationVolumeTab(ttk.Frame):
 
                     try:
                         direction_cache[int(row_data.speed_kmh)] = float(vehicles_hr_lane)
-                    except Exception:
-                        pass
+                        print(f"DEBUG: Cached Q for {direction_key} speed {int(row_data.speed_kmh)}: {vehicles_hr_lane}")
+                    except Exception as e:
+                        print(f"DEBUG: Failed to cache Q: {e}")
                     
                     density_data_row = [
                         speed,
@@ -3196,8 +3597,40 @@ class VentilationVolumeTab(ttk.Frame):
             except Exception as e:
                 text_widget.insert("end", f"Error generating Vehicles/km,lane table: {str(e)}\n\n")
 
+            # Add pressure calculations table (ΔPr, ΔPm, ΔPt, ΔPq)
+            try:
+                text_widget.insert("end", "Table: Pressure Calculations\n\n")
+                pressure_headers = [
+                    "ΔPr (Pa)",
+                    "ΔPm (Pa)",
+                    "ΔPt (Pa)",
+                    "ΔPq (Pa)",
+                ]
+                pressure_col_widths = [15, 15, 15, 15]
+                
+                def format_pressure_row(values):
+                    return " ".join(str(val).ljust(width) for val, width in zip(values, pressure_col_widths))
+                
+                text_widget.insert("end", format_pressure_row(pressure_headers) + "\n")
+                text_widget.insert("end", format_pressure_row(["-" * (w - 1) for w in pressure_col_widths]) + "\n")
+                
+                pressure_data_row = [
+                    f"{res.delta_Pr:.4f}",
+                    f"{res.delta_Pm:.4f}",
+                    f"{res.delta_Pt:.4f}",
+                    f"{res.delta_Pq:.4f}",
+                ]
+                text_widget.insert("end", format_pressure_row(pressure_data_row) + "\n")
+                text_widget.insert("end", "\n")
+            except Exception as e:
+                text_widget.insert("end", f"Error displaying pressure calculations: {str(e)}\n\n")
+
         # Force scroll to the top so first information is visible
         text_widget.yview_moveto(0.0)
+        
+        # Refresh Q values in Ventilation Capacity tables after cache is populated
+        if hasattr(self, 'ventilation_capacity_tab') and self.ventilation_capacity_tab:
+            self.ventilation_capacity_tab._refresh_q_values_in_tables(direction_key)
 
 
 class DataCatalog:
@@ -3419,13 +3852,19 @@ if __name__ == "__main__":
     # Second tab: Number of Jet Fan (pass result_tab and volume_tab references)
     jet_fan_tab = JetFanTab(notebook, result_tab=result_tab, volume_tab=ventilation_volume_tab)
     notebook.add(jet_fan_tab, text="Number of Jet Fan")
+    
+    # Store jet_fan_tab reference in ventilation_volume_tab for pressure calculations
+    ventilation_volume_tab.jet_fan_tab = jet_fan_tab
 
     # Results tab
     notebook.add(result_tab, text="Results (summary)")
     
     # Ventilation Capacity tab
-    ventilation_capacity_tab = VentilationCapacityTab(notebook, jet_fan_tab=jet_fan_tab)
+    ventilation_capacity_tab = VentilationCapacityTab(notebook, jet_fan_tab=jet_fan_tab, volume_tab=ventilation_volume_tab)
     notebook.add(ventilation_capacity_tab, text="Ventilation Capacity")
+    
+    # Store reference in volume_tab so it can refresh capacity tab when traffic estimation runs
+    ventilation_volume_tab.ventilation_capacity_tab = ventilation_capacity_tab
     
     # Add buttons to button frame
     def compute_summary():

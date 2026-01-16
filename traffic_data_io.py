@@ -109,6 +109,10 @@ def export_to_csv(
         "Special",
         "Total AADT",
         "Heavy Mix Pt (%)",
+        "ΔPr (Pa)",
+        "ΔPm (Pa)",
+        "ΔPt (Pa)",
+        "ΔPq (Pa)",
     ]
 
     output = io.StringIO()
@@ -161,6 +165,12 @@ def export_to_csv(
                 j = float(truck_special or 0)
                 pt = round(((f + h + i + j) / total_aadt) * 100.0, 2)
 
+        # Get pressure values
+        delta_Pr = row.get("delta_Pr", 0.0) or 0.0
+        delta_Pm = row.get("delta_Pm", 0.0) or 0.0
+        delta_Pt = row.get("delta_Pt", 0.0) or 0.0
+        delta_Pq = row.get("delta_Pq", 0.0) or 0.0
+
         writer.writerow(
             [
                 year,
@@ -175,6 +185,10 @@ def export_to_csv(
                 truck_special,
                 total_aadt if total_aadt else "",
                 f"{float(pt):.2f}" if pt is not None else "",
+                f"{delta_Pr:.4f}",
+                f"{delta_Pm:.4f}",
+                f"{delta_Pt:.4f}",
+                f"{delta_Pq:.4f}",
             ]
         )
 
@@ -210,6 +224,12 @@ def build_pdf_html(data: Iterable[Dict[str, Any]], title: str = "Traffic Estimat
         t_sp = int(row.get("truckSpecial", 0) or 0)
         total_aadt = int(row.get("totalAadt", 0) or 0)
         pt = row.get("heavyVehicleMixPt", None)
+        
+        # Get pressure values
+        delta_Pr = row.get("delta_Pr", 0.0) or 0.0
+        delta_Pm = row.get("delta_Pm", 0.0) or 0.0
+        delta_Pt = row.get("delta_Pt", 0.0) or 0.0
+        delta_Pq = row.get("delta_Pq", 0.0) or 0.0
 
         rows_html.append(
             f"""
@@ -225,6 +245,10 @@ def build_pdf_html(data: Iterable[Dict[str, Any]], title: str = "Traffic Estimat
               <td>{t_sp:,}</td>
               <td><strong>{total_aadt:,}</strong></td>
               <td><strong>{f"{float(pt):.2f}" if pt is not None else ""}</strong></td>
+              <td>{delta_Pr:.4f}</td>
+              <td>{delta_Pm:.4f}</td>
+              <td>{delta_Pt:.4f}</td>
+              <td>{delta_Pq:.4f}</td>
             </tr>
             """
         )
@@ -294,6 +318,10 @@ def build_pdf_html(data: Iterable[Dict[str, Any]], title: str = "Traffic Estimat
         <th>Special</th>
         <th>Total AADT</th>
         <th>Pt (%)</th>
+        <th>ΔPr (Pa)</th>
+        <th>ΔPm (Pa)</th>
+        <th>ΔPt (Pa)</th>
+        <th>ΔPq (Pa)</th>
       </tr>
     </thead>
     <tbody>

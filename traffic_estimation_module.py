@@ -81,10 +81,25 @@ class TrafficEstimationLogic:
         truck_medium: float,
         truck_large: float,
         truck_special: float,
+        # Optional tunnel parameters for pressure calculation
+        Qtreq: float = 0.0,
+        Ar: float = 0.0,
+        Lr: float = 0.0,
+        Dr: float = 0.0,
+        rho: float = 1.2,
+        xi: float = 0.6,
+        lamb: float = 0.025,
+        Ae: float = 1.0751,
+        Vt: float = 0.0,
+        lanes: int = 1,
+        vehicle_hr_lane: float = 0.0,
     ) -> TrafficResult:
         """
         Manually add a single entry and compute its result.
+        If tunnel parameters are provided, also compute pressure values.
         """
+        from traffic_calculations import compute_pressure_values
+        
         t_input = TrafficInput(
             passenger_aadt=passenger_aadt,
             bus_small=bus_small,
@@ -95,6 +110,24 @@ class TrafficEstimationLogic:
             truck_special=truck_special,
         )
         result = compute_estimated_traffic(t_input)
+        
+        # Compute pressure values if tunnel parameters are provided
+        if Qtreq > 0 and Ar > 0 and Lr > 0:
+            result = compute_pressure_values(
+                result=result,
+                Qtreq=Qtreq,
+                Ar=Ar,
+                Lr=Lr,
+                Dr=Dr,
+                rho=rho,
+                xi=xi,
+                lamb=lamb,
+                Ae=Ae,
+                Vt=Vt,
+                lanes=lanes,
+                vehicle_hr_lane=vehicle_hr_lane,
+            )
+        
         entry = TrafficBatch(
             year=year,
             inputs=t_input,
@@ -129,6 +162,10 @@ class TrafficEstimationLogic:
                     "totalAadt": res.total_aadt,
                     "heavyVehicleMixPt": res.heavy_vehicle_mix_pt,
                     "mixPercents": res.mix_percents,
+                    "delta_Pr": res.delta_Pr,
+                    "delta_Pm": res.delta_Pm,
+                    "delta_Pt": res.delta_Pt,
+                    "delta_Pq": res.delta_Pq,
                 }
             )
         return out

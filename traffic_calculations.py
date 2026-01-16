@@ -53,6 +53,11 @@ class TrafficResult:
     mix_percents: Dict[str, float]
     mix_percent_sum: float
     heavy_vehicle_mix_pt: float
+    # Pressure calculations (optional, computed if tunnel parameters provided)
+    delta_Pr: float = 0.0  # Roadway wind pressure loss [Pa]
+    delta_Pm: float = 0.0  # Natural wind pressure loss [Pa]
+    delta_Pt: float = 0.0  # Vehicle traffic pressure [Pa]
+    delta_Pq: float = 0.0  # Required pressure [Pa]
 
 
 def compute_estimated_traffic(params: TrafficInput) -> TrafficResult:
@@ -120,3 +125,85 @@ def compute_estimated_traffic(params: TrafficInput) -> TrafficResult:
         mix_percent_sum=mix_percent_sum,
         heavy_vehicle_mix_pt=heavy_vehicle_mix_pt,
     )
+
+
+def compute_pressure_values(
+    result: TrafficResult,
+    Qtreq: float,
+    Ar: float,
+    Lr: float,
+    Dr: float,
+    rho: float,
+    xi: float,
+    lamb: float,
+    Ae: float,
+    Vt: float,
+    lanes: int,
+    vehicle_hr_lane: float = 0.0
+) -> TrafficResult:
+    """
+    Compute pressure values (ΔPr, ΔPm, ΔPt, ΔPq) for traffic estimation results.
+    
+    Parameters match those in vent_functions for pressure calculations.
+    Uses formulas from compute_Pr, compute_Pm, compute_Pt, compute_Pq in vent_functions.py
+    
+    :param result: TrafficResult to update with pressure values
+    :param Qtreq: Required ventilation flow rate [m³/s]
+    :param Ar: Tunnel cross-sectional area [m²]
+    :param Lr: Tunnel length [m]
+    :param Dr: Representative diameter [m]
+    :param rho: Air density [kg/m³]
+    :param xi: Entrance loss coefficient
+    :param lamb: Friction loss coefficient λ
+    :param Ae: Equivalent resistance area [m²]
+    :param Vt: Driving speed [m/s]
+    :param lanes: Number of lanes
+    :param vehicle_hr_lane: Vehicles per hour per lane (computed from traffic data)
+    :return: Updated TrafficResult with pressure values
+    """
+    # Compute Vr: roadway wind speed
+    Vr = round(Qtreq / Ar, 4) if Ar > 0 else 0.0
+    
+    # Un: natural wind speed (constant for jet fan calc)
+    Un = 2.5
+    
+    # Compute n: number of vehicles in tunnel
+    # Use vehicle_hr_lane if provided, otherwise compute from AADT
+    if vehicle_hr_lane > 0 and Vt > 0:
+        n = round(vehicle_hr_lane * lanes * Lr / (3600.0 * Vt) + 0.4, 0)
+    elif result.total_aadt > 0 and Vt > 0:
+        # Convert AADT to hourly traffic (AADT / 24 hours as approximation)
+        hourly_per_lane = result.total_aadt / 24.0
+        n = round(hourly_per_lane * lanes * Lr / (3600.0 * Vt) + 0.4, 0)
+    else:
+        n = 0.0
+    
+    # Common factor for pressure calculations: (1 + ξ + λ*Lr/Dr) * ρ / 2
+    common_factor = (1 + xi + lamb * Lr / Dr) * rho / 2.0 if Dr > 0 else 0.0
+    
+    # ΔPr = common_factor * Vr²
+    delta_Pr = round(common_factor * (Vr ** 2), 4)
+    
+    # ΔPm = common_factor * Un²
+    delta_Pm = round(common_factor * (Un ** 2), 4)
+    
+    # ΔPt = sign(Vt−Vr) × ρ/2 × (Ae/Ar) × n × (Vt−Vr)²
+    if Vt == Vr:
+        delta_Pt = 0.0
+    else:
+        sign = 1.0 if Vt > Vr else -1.0
+        if Ar > 0:
+            delta_Pt = round(sign * rho / 2.0 * Ae / Ar * n * (Vt - Vr) ** 2, 4)
+        else:
+            delta_Pt = 0.0
+    
+    # ΔPq = ΔPr + ΔPm - ΔPt
+    delta_Pq = round(delta_Pr + delta_Pm - delta_Pt, 4)
+    
+    # Update result with pressure values
+    result.delta_Pr = delta_Pr
+    result.delta_Pm = delta_Pm
+    result.delta_Pt = delta_Pt
+    result.delta_Pq = delta_Pq
+    
+    return result
