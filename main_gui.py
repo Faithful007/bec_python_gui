@@ -18,6 +18,76 @@ from vent_functions import (
 from speed_grade_tables import get_all_overrides, set_table_override
 
 
+class NumericValidator:
+    """Helper class for numeric input validation across the GUI."""
+    
+    @staticmethod
+    def validate_numeric(s, d):
+        """Validate that input is numeric (int or float).
+        s: string being inserted (single character)
+        d: type of action (1=insert, 0=delete)
+        """
+        if d == 0:  # Allow deletion
+            return True
+        if s == "":  # Allow empty string
+            return True
+        # Allow digits, decimal point, and negative sign
+        # s is a single character being typed
+        if s in '0123456789.-':
+            return True
+        return False
+    
+    @staticmethod
+    def clear_on_focus(event):
+        """Clear entry widget on focus (click or tab)."""
+        entry = event.widget
+        entry.delete(0, tk.END)
+        # Also clear the associated variable to prevent re-display
+        try:
+            var_name = entry.cget('textvariable')
+            if var_name:
+                entry.tk.setvar(var_name, '')
+        except Exception:
+            pass
+    
+    @staticmethod
+    def default_to_zero_on_focusout(event):
+        """Set field to 0 if empty when focus is lost."""
+        entry = event.widget
+        try:
+            value = entry.get().strip()
+            if value == "":
+                entry.delete(0, tk.END)
+                entry.insert(0, "0")
+                # Update the associated variable
+                var_name = entry.cget('textvariable')
+                if var_name:
+                    entry.tk.setvar(var_name, '0')
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_valid_numbers(var_list, field_names=None):
+        """Check if all variables contain valid numbers.
+        Returns tuple (is_valid, invalid_fields_str)
+        """
+        invalid_fields = []
+        for i, var in enumerate(var_list):
+            try:
+                val = var.get()
+                if val and val.strip():  # If not empty
+                    float(val)
+            except (ValueError, AttributeError):
+                if field_names and i < len(field_names):
+                    invalid_fields.append(field_names[i])
+                else:
+                    invalid_fields.append(f"Field {i+1}")
+        
+        is_valid = len(invalid_fields) == 0
+        invalid_str = ", ".join(invalid_fields)
+        return is_valid, invalid_str
+
+
 class JetFanTab(ttk.Frame):
     """
     First tab: 'Number of Jet Fan'
@@ -276,24 +346,31 @@ class JetFanTab(ttk.Frame):
         else:
             self.dir2_labelframe = col_frame
         
+        # Register numeric validation
+        vcmd = (self.register(NumericValidator.validate_numeric), '%S', '%d')
+        
         row = 0
         
         # Required ventilation Qtreq
         ttk.Label(col_frame, text="Required ventilation Qtreq (m³/s):").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        ttk.Entry(col_frame, textvariable=qtreq_var, width=12).grid(
-            row=row, column=1, sticky="w", padx=pad, pady=pad
-        )
+        entry_qtreq = ttk.Entry(col_frame, textvariable=qtreq_var, width=12,
+                 validate="key", validatecommand=vcmd)
+        entry_qtreq.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
+        entry_qtreq.bind('<FocusIn>', NumericValidator.clear_on_focus)
+        entry_qtreq.bind('<FocusOut>', NumericValidator.default_to_zero_on_focusout)
         row += 1
         
         # Number of lanes
         ttk.Label(col_frame, text="Number of lanes:").grid(
             row=row, column=0, sticky="e", padx=pad, pady=pad
         )
-        ttk.Entry(col_frame, textvariable=lanes_var, width=12).grid(
-            row=row, column=1, sticky="w", padx=pad, pady=pad
-        )
+        entry_lanes = ttk.Entry(col_frame, textvariable=lanes_var, width=12,
+                 validate="key", validatecommand=vcmd)
+        entry_lanes.grid(row=row, column=1, sticky="w", padx=pad, pady=pad)
+        entry_lanes.bind('<FocusIn>', NumericValidator.clear_on_focus)
+        entry_lanes.bind('<FocusOut>', NumericValidator.default_to_zero_on_focusout)
         row += 1
         
         # Tunnel cross-sectional area Ar
@@ -585,6 +662,45 @@ class JetFanTab(ttk.Frame):
 
     def compute_and_publish(self):
         """Compute jet fan numbers for both directions."""
+        # Pre-compute validation: check all VentilationCapacityTab entries for valid numeric values
+        invalid_entries = []
+        try:
+            for direction in [1, 2]:
+                if direction == 1:
+                    pairs = [
+                        ("Qtreq (Dir 1)", self.qtreq_dir1_var),
+                        ("Vr (Dir 1)", self.vr_dir1_var),
+                        ("Lr (Dir 1)", self.lr_dir1_var),
+                        ("Lp (Dir 1)", self.lp_dir1_var),
+                        ("Ar (Dir 1)", self.ar_dir1_var),
+                    ]
+                else:
+                    pairs = [
+                        ("Qtreq (Dir 2)", self.qtreq_dir2_var),
+                        ("Vr (Dir 2)", self.vr_dir2_var),
+                        ("Lr (Dir 2)", self.lr_dir2_var),
+                        ("Lp (Dir 2)", self.lp_dir2_var),
+                        ("Ar (Dir 2)", self.ar_dir2_var),
+                    ]
+                
+                for field_name, var in pairs:
+                    try:
+                        val_str = var.get().strip() if isinstance(var.get(), str) else str(var.get()).strip()
+                        if val_str:
+                            float(val_str)  # Try to convert to float
+                    except (ValueError, AttributeError):
+                        invalid_entries.append(f"{field_name}: '{val_str}'")
+        except Exception:
+            pass  # If attribute doesn't exist, skip this check
+        
+        if invalid_entries:
+            error_msg = "Found non-numeric values in Ventilation Capacity tab:\n\n" + "\n".join(invalid_entries[:5])
+            if len(invalid_entries) > 5:
+                error_msg += f"\n... and {len(invalid_entries) - 5} more"
+            error_msg += "\n\nPlease remove alphabetic or special characters from numeric fields."
+            messagebox.showerror("Invalid Input", error_msg)
+            return None, None, None, None
+        
         try:
             # Compute Direction 1 (FROM→TO)
             inp_dir1 = self._build_inputs_object(direction=1)
@@ -1183,12 +1299,13 @@ class VentilationCapacityTab(ttk.Frame):
         self.road_type_vars = {}
         # One-time prompt guard when Vehicle/hr per lane is missing
         self._traffic_prompt_shown = False
+        # Guard to prevent multiple prompts
+        self._jet_fan_selection_prompted = False
         
         # Initialize dropdown variables for each direction
         if jet_fan_tab:
             jet_keys = sorted(JET_AREA_MAP.keys())
             jet_choices = [str(k) for k in jet_keys]
-            smallest_jet = jet_choices[0]
             
             eff_choices = [
                 "High efficiency (30 m/s)",
@@ -1196,18 +1313,37 @@ class VentilationCapacityTab(ttk.Frame):
             ]
         else:
             jet_choices = ["630", "710", "1030", "1250", "1530"]
-            smallest_jet = "630"
             eff_choices = ["High efficiency (30 m/s)", "Standard (34 m/s)"]
         
-        self.jet_diameter_dir1_var = tk.StringVar(value=smallest_jet)
-        self.high_eff_dir1_var = tk.StringVar(value=eff_choices[0])
-        self.jet_diameter_dir2_var = tk.StringVar(value=smallest_jet)
-        self.high_eff_dir2_var = tk.StringVar(value=eff_choices[0])
+        # Initialize with placeholder values - user must explicitly select both
+        placeholder_jet = "-- Select Jet Fan Diameter (mm) --"
+        placeholder_eff = "-- Select Efficiency --"
         
-        self.jet_choices = jet_choices
-        self.eff_choices = eff_choices
+        # Add placeholders to choices
+        jet_choices_with_placeholder = [placeholder_jet] + jet_choices
+        eff_choices_with_placeholder = [placeholder_eff] + eff_choices
+        
+        self.jet_diameter_dir1_var = tk.StringVar(value=placeholder_jet)
+        self.high_eff_dir1_var = tk.StringVar(value=placeholder_eff)
+        self.jet_diameter_dir2_var = tk.StringVar(value=placeholder_jet)
+        self.high_eff_dir2_var = tk.StringVar(value=placeholder_eff)
+        
+        self.jet_choices = jet_choices_with_placeholder
+        self.eff_choices = eff_choices_with_placeholder
+        
+        # Add traces to jet fan selection dropdowns to enable/disable inputs
+        self.jet_diameter_dir1_var.trace_add("write", lambda *a: self._check_jet_fan_selection(1))
+        self.high_eff_dir1_var.trace_add("write", lambda *a: self._check_jet_fan_selection(1))
+        self.jet_diameter_dir2_var.trace_add("write", lambda *a: self._check_jet_fan_selection(2))
+        self.high_eff_dir2_var.trace_add("write", lambda *a: self._check_jet_fan_selection(2))
+        
+        # Register numeric validation for Entry widgets
+        self.numeric_vcmd = (self.register(self._validate_numeric), '%S', '%d')
         
         self._build_layout()
+        # Keep direction labels in sync with Calculate Ventilation tab
+        self._attach_dirname_traces()
+        self._update_card_titles()
 
     @staticmethod
     def _safe_float(var, default=0.0):
@@ -1230,22 +1366,74 @@ class VentilationCapacityTab(ttk.Frame):
             pass
         return default
 
+    @staticmethod
+    def _validate_numeric(s, d):
+        """Validate that input is numeric (int or float).
+        s: string being inserted
+        d: type of action (1=insert, 0=delete)
+        """
+        if d == 0:  # Allow deletion
+            return True
+        if s == "":  # Allow empty string
+            return True
+        # Allow digits, decimal point, and minus sign (per-character)
+        return all(ch in "0123456789.-" for ch in s)
+
+    def _get_dir_labels(self):
+        """Return direction labels from volume tab (calculate ventilation) with fallbacks."""
+        dir1_label, dir2_label = "FROM", "TO"
+        try:
+            if self.volume_tab:
+                if hasattr(self.volume_tab, "dir1Name"):
+                    val = self.volume_tab.dir1Name.get()
+                    dir1_label = val if val else dir1_label
+                if hasattr(self.volume_tab, "dir2Name"):
+                    val = self.volume_tab.dir2Name.get()
+                    dir2_label = val if val else dir2_label
+        except Exception:
+            pass
+        return dir1_label, dir2_label
+
+    def _update_card_titles(self):
+        """Update capacity card titles to reflect current direction labels."""
+        dir1_label, dir2_label = self._get_dir_labels()
+        try:
+            if hasattr(self, "card1"):
+                self.card1.configure(text=f"Capacity: {dir1_label} → {dir2_label}")
+            if hasattr(self, "card2"):
+                self.card2.configure(text=f"Capacity: {dir2_label} → {dir1_label}")
+        except Exception:
+            pass
+
+    def _attach_dirname_traces(self):
+        """Attach traces to volume tab direction names to keep titles in sync."""
+        if not self.volume_tab:
+            return
+        try:
+            if hasattr(self.volume_tab, "dir1Name"):
+                self.volume_tab.dir1Name.trace_add("write", lambda *a: self._update_card_titles())
+            if hasattr(self.volume_tab, "dir2Name"):
+                self.volume_tab.dir2Name.trace_add("write", lambda *a: self._update_card_titles())
+        except Exception:
+            pass
+
     def _build_layout(self):
         """Build the ventilation capacity calculation display."""
+        dir1_label, dir2_label = self._get_dir_labels()
         # Title
         title = ttk.Label(self.content_frame, text="Ventilation Capacity Analysis", 
                          font=("Arial", 14, "bold"))
         title.pack(anchor="w", pady=(0, 10))
         
         # Direction 1 card
-        card1 = ttk.LabelFrame(self.content_frame, text="Capacity: FROM → TO", padding="10 10 10 10")
-        card1.pack(fill="x", pady=5)
-        self._build_direction_card(card1, direction=1)
+        self.card1 = ttk.LabelFrame(self.content_frame, text=f"Capacity: {dir1_label} → {dir2_label}", padding="10 10 10 10")
+        self.card1.pack(fill="x", pady=5)
+        self._build_direction_card(self.card1, direction=1)
         
         # Direction 2 card
-        card2 = ttk.LabelFrame(self.content_frame, text="Capacity: TO → FROM", padding="10 10 10 10")
-        card2.pack(fill="x", pady=5)
-        self._build_direction_card(card2, direction=2)
+        self.card2 = ttk.LabelFrame(self.content_frame, text=f"Capacity: {dir2_label} → {dir1_label}", padding="10 10 10 10")
+        self.card2.pack(fill="x", pady=5)
+        self._build_direction_card(self.card2, direction=2)
         
         # Buttons
         button_frame = ttk.Frame(self.content_frame)
@@ -1339,106 +1527,107 @@ class VentilationCapacityTab(ttk.Frame):
             for col in range(1, len(simplified_headers)):
                 var = tk.StringVar(value="0.0")
                 is_constant = col in constant_columns
+                # Add validation for editable, non-constant columns
+                editable_cols = [2, 3, 10, 11, 12]
+                use_validation = col in editable_cols and col not in constant_columns
+                
                 entry = ttk.Entry(table_frame, textvariable=var, width=10, 
-                                 state="readonly" if is_constant else "normal",
-                                 justify="center")
+                                 state="readonly" if is_constant else "disabled",
+                                 justify="center",
+                                 validate="key" if use_validation else "none",
+                                 validatecommand=self.numeric_vcmd if use_validation else "")
                 entry.grid(row=row_idx, column=col, sticky="nsew")
                 self.data_cells[direction][speed][col] = {"entry": entry, "var": var}
+                
+                # For editable columns, bind focus event to show prompt if disabled
+                editable_cols = [2, 3, 10, 11, 12]
+                if col in editable_cols:
+                    entry.bind("<FocusIn>", lambda e, d=direction, c=col: self._on_cell_focus(e, d, c))
+                    entry.bind("<FocusOut>", NumericValidator.default_to_zero_on_focusout)
                 
                 # Add trace for Vr (col 3) to auto-update Kj (col 4) and pressure values
                 if col == 3:  # Vr column
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_kj(d, s))
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_n(d, s))
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_jet_fans(d, s))
                 # Add trace for Lr (col 10) to auto-update Dr, n, and pressure values
                 elif col == 10:  # Lr column
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_dr(d, s))
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_n(d, s))
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_jet_fans(d, s))
                 # Add trace for Lp (col 11) to auto-update Dr and pressure values
                 elif col == 11:  # Lp column
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_dr(d, s))
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_jet_fans(d, s))
                 # Add trace for Ar (col 12) to auto-update Dr and pressure values
                 elif col == 12:  # Ar column
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_dr(d, s))
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_jet_fans(d, s))
                 # Add trace for Qtreq (col 2) to auto-update n and pressure values
                 elif col == 2:  # Qtreq column
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_n(d, s))
                     var.trace_add("write", lambda *a, d=direction, s=speed: self._update_pressures(d, s))
+                    var.trace_add("write", lambda *a, d=direction, s=speed: self._update_jet_fans(d, s))
         
-        # Update values from jet_fan_tab
-        self._populate_constants(direction)
-        
-        # Trace jet_fan_tab variables to auto-update
-        if self.jet_fan_tab:
-            # Use default parameter to capture direction value in closure
-            self.jet_fan_tab.rho_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-            self.jet_fan_tab.xi_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-            self.jet_fan_tab.lamb_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-            self.jet_fan_tab.ae_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-            self.jet_fan_tab.eta_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-            self.jet_fan_tab.un_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-            self.jet_fan_tab.vt_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-            self.jet_fan_tab.jet_diameter_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-            
-            # Direction-specific variables
-            if direction == 1:
-                self.jet_fan_tab.ar_dir1_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-                self.jet_fan_tab.dr_dir1_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-                self.jet_fan_tab.lr_dir1_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-                # Trace Lp from volume_tab
-                if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryFromToTo'):
-                    self.jet_fan_tab.volume_tab.tunnelGeometryFromToTo.avg_lp_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-            else:
-                self.jet_fan_tab.ar_dir2_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-                self.jet_fan_tab.dr_dir2_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-                self.jet_fan_tab.lr_dir2_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
-                # Trace Lp from volume_tab
-                if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryToToFrom'):
-                    self.jet_fan_tab.volume_tab.tunnelGeometryToToFrom.avg_lp_var.trace_add("write", lambda *a, d=direction: self._populate_constants(d))
+        # Initialize with default constant values
+        self._initialize_default_values(direction)
     
-    def _populate_constants(self, direction):
-        """Populate constants from JetFanTab into the cells."""
-        if not self.jet_fan_tab:
-            return
+    def _on_cell_focus(self, event, direction, col):
+        """Handle focus event on editable cells - show prompt if cell is disabled."""
+        entry = event.widget
+        if entry.cget("state") == "disabled":
+            # Show prompt if not yet shown
+            if not self._jet_fan_selection_prompted:
+                messagebox.showinfo(
+                    "Jet Fan Configuration Required",
+                    "Please select both Jet Fan Diameter and Efficiency for each direction\n\n"
+                    "- Jet Fan Diameter (mm): Select from available options\n"
+                    "- Efficiency: Choose between High efficiency (30 m/s) or Standard (34 m/s)\n\n"
+                    "Input cells will be enabled once both parameters are selected."
+                )
+                self._jet_fan_selection_prompted = True
+        else:
+            # Clear field when focused (click or tab) so new value can be entered fresh
+            entry.delete(0, tk.END)
+    
+    def _check_jet_fan_selection(self, direction):
+        """Check if jet fan diameter and efficiency are selected. Enable/disable inputs accordingly."""
+        try:
+            jet_var = self.jet_diameter_dir1_var if direction == 1 else self.jet_diameter_dir2_var
+            eff_var = self.high_eff_dir1_var if direction == 1 else self.high_eff_dir2_var
+            
+            jet_val = jet_var.get()
+            eff_val = eff_var.get()
+            
+            # Check if selections are valid (not placeholders)
+            placeholder_jet = "-- Select Jet Fan Diameter (mm) --"
+            placeholder_eff = "-- Select Efficiency --"
+            
+            is_valid = (jet_val and jet_val != placeholder_jet and 
+                       eff_val and eff_val != placeholder_eff)
+            
+            # Enable/disable all editable input cells for this direction
+            editable_cols = [2, 3, 10, 11, 12]  # Qtreq, Vr, Lr, Lp, Ar
+            
+            if direction in self.data_cells:
+                for speed in self.data_cells[direction]:
+                    for col in editable_cols:
+                        if col in self.data_cells[direction][speed]:
+                            entry = self.data_cells[direction][speed][col]["entry"]
+                            entry.configure(state="normal" if is_valid else "disabled")
         
+        except Exception as e:
+            print(f"Error checking jet fan selection: {e}")
+    
+    def _initialize_default_values(self, direction):
+        """Initialize cells with default constant values (no syncing from other tabs)."""
         try:
             from vent_functions import Vt_MAP
             speeds = [10, 20, 30, 40, 50, 60, 70, 80]
-            
-            # Get direction-specific variables
-            if direction == 1:
-                ar_var = self.jet_fan_tab.ar_dir1_var
-                dr_var = self.jet_fan_tab.dr_dir1_var
-                lr_var = self.jet_fan_tab.lr_dir1_var
-                # Get Lp from volume_tab tunnel geometry
-                if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryFromToTo'):
-                    lp_var = self.jet_fan_tab.volume_tab.tunnelGeometryFromToTo.avg_lp_var
-                else:
-                    lp_var = tk.DoubleVar(value=0.0)
-            else:
-                ar_var = self.jet_fan_tab.ar_dir2_var
-                dr_var = self.jet_fan_tab.dr_dir2_var
-                lr_var = self.jet_fan_tab.lr_dir2_var
-                # Get Lp from volume_tab tunnel geometry
-                if hasattr(self.jet_fan_tab, 'volume_tab') and hasattr(self.jet_fan_tab.volume_tab, 'tunnelGeometryToToFrom'):
-                    lp_var = self.jet_fan_tab.volume_tab.tunnelGeometryToToFrom.avg_lp_var
-                else:
-                    lp_var = tk.DoubleVar(value=0.0)
-            
-            # Get shared constants
-            rho = float(self.jet_fan_tab.rho_var.get())
-            xi = float(self.jet_fan_tab.xi_var.get())
-            lamb = float(self.jet_fan_tab.lamb_var.get())
-            ae = float(self.jet_fan_tab.ae_var.get())
-            eta = float(self.jet_fan_tab.eta_var.get())
-            un = float(self.jet_fan_tab.un_var.get())
-            ar = float(ar_var.get())
-            lr = float(lr_var.get())
-            lp = float(lp_var.get())
-            dr = float(dr_var.get())
             
             for row_idx, speed in enumerate(speeds, start=1):
                 cells = self.data_cells[direction][speed]
@@ -1446,45 +1635,43 @@ class VentilationCapacityTab(ttk.Frame):
                 # Get speed-dependent Vt from Vt_MAP
                 vt_speed = Vt_MAP.get(int(speed), 0.0)
                 
-                # Map constants to columns: 0-Speed, 1-Vt, 2-Qtreq, 3-Vr, 4-Kj, 5-Un, 6-λ, 7-ξ, 8-ρ, 9-Ae, 10-Lr, 11-Lp, 12-Ar, 13-η, 14-Dr, 15-Q, 16-n, 17-ΔPr, 18-ΔPm, 19-ΔPt, 20-ΔPq, 21-Z_raw, 22-Z
-                constants = {
-                    1: (f"{vt_speed:.2f}", "Vt from speed"),  # Col 1
-                    2: ("0.0", "Qtreq"),  # Col 2 - Editable
-                    3: ("0.0", "Vr"),  # Col 3 - Editable
-                    4: ("0.0", "Kj"),  # Col 4 - Will be calculated from Vr
-                    5: ("2.5", "Un"),  # Col 5 - Natural wind speed = 2.5 m/s
-                    6: ("0.025", "λ"),  # Col 6 - Friction loss coefficient = 0.025
-                    7: ("0.6", "ξ"),  # Col 7 - Entrance loss coefficient = 0.6
-                    8: ("1.2", "ρ"),  # Col 8 - Air density = 1.2 kg/m³
-                    9: ("1.0751", "Ae"),  # Col 9 - Equivalent resistance area = 1.0751 m²
-                    10: (f"{lr:.4f}", "Lr"),  # Col 10 - Tunnel length from jet_fan_tab - editable
-                    11: (f"{lp:.4f}", "Lp"),  # Col 11 - Segment/section length from volume tab - editable
-                    12: (f"{ar:.4f}", "Ar"),  # Col 12
-                    13: (f"{eta:.3f}", "η"),  # Col 13
-                    14: (f"{dr:.4f}", "Dr"),  # Col 14
-                    15: ("0.0", "Q"),  # Col 15 - Will be calculated (Q from traffic estimation)
-                    16: ("0.0", "n"),  # Col 16 - Will be calculated (number of vehicles)
-                    17: ("0.0", "ΔPr"),  # Col 17 - Will be calculated
-                    18: ("0.0", "ΔPm"),  # Col 18 - Will be calculated
-                    19: ("0.0", "ΔPt"),  # Col 19 - Will be calculated
-                    20: ("0.0", "ΔPq"),  # Col 20 - Will be calculated
-                    21: ("0.0", "Z_raw"),  # Col 21 - Will be calculated
-                    22: ("0", "Z"),  # Col 22 - Will be calculated (integer)
+                # Initialize with default constant values (user will enter their own values)
+                # Map to columns: 0-Speed, 1-Vt, 2-Qtreq, 3-Vr, 4-Kj, 5-Un, 6-λ, 7-ξ, 8-ρ, 9-Ae, 10-Lr, 11-Lp, 12-Ar, 13-η, 14-Dr, 15-Q, 16-n, 17-ΔPr, 18-ΔPm, 19-ΔPt, 20-ΔPq, 21-Z_raw, 22-Z
+                defaults = {
+                    1: f"{vt_speed:.2f}",  # Col 1 - Vt from speed map (constant)
+                    2: "0.0",  # Col 2 - Qtreq (editable)
+                    3: "0.0",  # Col 3 - Vr (editable)
+                    4: "0.0",  # Col 4 - Kj (calculated from Vr)
+                    5: "2.5",  # Col 5 - Un = 2.5 m/s (constant)
+                    6: "0.025",  # Col 6 - λ = 0.025 (constant)
+                    7: "0.6",  # Col 7 - ξ = 0.6 (constant)
+                    8: "1.2",  # Col 8 - ρ = 1.2 kg/m³ (constant)
+                    9: "1.0751",  # Col 9 - Ae = 1.0751 m² (constant)
+                    10: "0.0",  # Col 10 - Lr (editable)
+                    11: "0.0",  # Col 11 - Lp (editable)
+                    12: "0.0",  # Col 12 - Ar (editable)
+                    13: "0.95",  # Col 13 - η = 0.95 (constant)
+                    14: "0.0",  # Col 14 - Dr (calculated from Ar, Lp)
+                    15: "0.0",  # Col 15 - Q (constant, from traffic)
+                    16: "0.0",  # Col 16 - n (calculated, from traffic)
+                    17: "0.0",  # Col 17 - ΔPr (calculated)
+                    18: "0.0",  # Col 18 - ΔPm (calculated)
+                    19: "0.0",  # Col 19 - ΔPt (calculated)
+                    20: "0.0",  # Col 20 - ΔPq (calculated)
+                    21: "0.0",  # Col 21 - Z_raw (calculated)
+                    22: "0",  # Col 22 - Z (calculated)
                 }
                 
-                for col, (value, desc) in constants.items():
+                for col, value in defaults.items():
                     if col in cells:
                         cells[col]["var"].set(value)
                 
-                # Calculate derived values (Kj, Dr, Q, n, pressures, jet fans) after setting all constants
-                self._update_kj(direction, speed)
-                self._update_dr(direction, speed)
+                # Only update n from traffic estimation (Q is also from traffic)
                 self._update_q(direction, speed)
                 self._update_n(direction, speed)
-                self._update_pressures(direction, speed)
         
         except Exception as e:
-            print(f"Error populating constants: {e}")
+            print(f"Error initializing default values: {e}")
     
     def _update_kj(self, direction, speed):
         """Update Kj value based on Vr value for a specific row.
@@ -1684,8 +1871,26 @@ class VentilationCapacityTab(ttk.Frame):
             print(f"Error updating pressures: {e}")
 
     def _update_jet_fans(self, direction, speed):
-        """Update Z_raw and Z (Z_applied) using formulas from vent_functions.py"""
+        """Update Z_raw and Z (Z_applied) using independent jet fan parameters."""
         try:
+            # Check if jet fan selection is valid (not placeholder)
+            placeholder_jet = "-- Select Jet Fan Diameter (mm) --"
+            placeholder_eff = "-- Select Efficiency --"
+            
+            jet_var = self.jet_diameter_dir1_var if direction == 1 else self.jet_diameter_dir2_var
+            eff_var = self.high_eff_dir1_var if direction == 1 else self.high_eff_dir2_var
+            
+            jet_val = jet_var.get()
+            eff_val = eff_var.get()
+            
+            # Skip calculation if placeholders are still selected
+            if jet_val == placeholder_jet or eff_val == placeholder_eff:
+                # Clear the Z values
+                cells = self.data_cells[direction][speed]
+                cells[21]["var"].set("0.00")
+                cells[22]["var"].set("0")
+                return
+            
             cells = self.data_cells[direction][speed]
         
             # Get all required values
@@ -1698,12 +1903,9 @@ class VentilationCapacityTab(ttk.Frame):
             eta = self._safe_float(cells[13]["var"])  # η (col 13)
             delta_pq = self._safe_float(cells[20]["var"])  # ΔPq (col 20)
         
-            # Get jet fan parameters
-            if not self.jet_fan_tab:
-                return
-        
-            jet_diameter = int(self.jet_diameter_dir1_var.get() if direction == 1 else self.jet_diameter_dir2_var.get())
-            high_eff_str = self.high_eff_dir1_var.get() if direction == 1 else self.high_eff_dir2_var.get()
+            # Get jet fan parameters from dropdowns in this tab
+            jet_diameter = int(jet_val)
+            high_eff_str = eff_val
             high_efficiency = "High efficiency" in high_eff_str
         
             # Import from vent_functions
@@ -1720,7 +1922,7 @@ class VentilationCapacityTab(ttk.Frame):
         
             # Calculate ΔPj using the formula from vent_functions
             # ΔPj = Kj * ρ * Vj^2 * Aj/Ar * (1 - Vr/Vj) * η
-            if vj > 0 and ar > 0:
+            if vj > 0 and ar > 0 and vj != vr:
                 delta_pj = round(kj * rho * vj ** 2 * aj / ar * (1 - vr / vj) * eta, 4)
             else:
                 delta_pj = 0.0
@@ -1729,17 +1931,17 @@ class VentilationCapacityTab(ttk.Frame):
             if delta_pj > 0:
                 z_raw = round(delta_pq / delta_pj, 2)
             else:
-                z_raw = 0.0
+                z_raw = 0.0 if delta_pq == 0 else float('inf')
         
             # Calculate Z_applied (ceiling of z_raw if > 0, else 0)
-            if z_raw <= 0:
+            if z_raw <= 0 or z_raw == float('inf') or z_raw != z_raw:  # NaN check
                 z_applied = 0
             else:
                 import math
                 z_applied = math.ceil(z_raw)
         
             # Update Z_raw (col 21) and Z (col 22)
-            cells[21]["var"].set(f"{z_raw:.2f}")
+            cells[21]["var"].set(f"{z_raw:.2f}" if z_raw != float('inf') else "inf")
             cells[22]["var"].set(str(z_applied))
         
         except Exception as e:
@@ -1935,8 +2137,8 @@ class TunnelGeometry(ttk.LabelFrame):
         ar_var.trace_add("write", lambda *args: self._recompute_dr_and_averages(ar_var, lp_var))
         lp_var.trace_add("write", lambda *args: self._recompute_dr_and_averages(ar_var, lp_var))
 
-        # Initial Dr compute
-        self._recompute_dr(ar_var, lp_var)
+        # Initial averages and Dr compute from segments
+        self._recompute_dr_and_averages(self.avg_ar_var, self.avg_lp_var)
 
         # Keep label/entry columns anchored left; let a right filler stretch
         self.columnconfigure(0, weight=0)
@@ -2007,12 +2209,14 @@ class TunnelGeometry(ttk.LabelFrame):
             ttk.Label(self.grid_frame, text=f"Sec. {i+1}", font=("Arial", 10, "bold")).grid(row=0, column=i+1, sticky="w", **header_style)
 
         # Rows: Gradient, Length, Lanes, Ar, Lp
+        # Use StringVar for all editable cells so empty values are allowed
+        # and won't raise TclError on get(). Convert safely on write.
         rows = [
-            ("Tunnel gradient [%]", "gradient", tk.DoubleVar),
-            ("Tunnel length [m]", "length", tk.DoubleVar),
-            ("Number of lanes, N", "lanes", tk.IntVar),
-            ("Tunnel Cross-Section Area, Ar [m²]", "ar", tk.DoubleVar),
-            ("Tunnel Perimeter, Lp [m]", "lp", tk.DoubleVar),
+            ("Tunnel gradient [%]", "gradient", tk.StringVar),
+            ("Tunnel length [m]", "length", tk.StringVar),
+            ("Number of lanes, N", "lanes", tk.StringVar),
+            ("Tunnel Cross-Section Area, Ar [m²]", "ar", tk.StringVar),
+            ("Tunnel Perimeter, Lp [m]", "lp", tk.StringVar),
         ]
 
         # Keep strong refs to vars to prevent GC
@@ -2024,15 +2228,23 @@ class TunnelGeometry(ttk.LabelFrame):
             for i in range(n):
                 default = self.segments[i].get(key, 0 if key == "lanes" else 0.0)
                 var = VarType(value=default)
-                ent = ttk.Entry(self.grid_frame, textvariable=var, width=14)
+                # Add numeric validation for numeric fields (ar and lp)
+                if key in ("ar", "lp"):
+                    vcmd = (self.register(NumericValidator.validate_numeric), '%S', '%d')
+                    ent = ttk.Entry(self.grid_frame, textvariable=var, width=14, validate="key", validatecommand=vcmd)
+                else:
+                    ent = ttk.Entry(self.grid_frame, textvariable=var, width=14)
+                # Add clear-on-focus binding for ALL entry fields
+                ent.bind('<FocusIn>', NumericValidator.clear_on_focus)
+                ent.bind('<FocusOut>', NumericValidator.default_to_zero_on_focusout)
                 ent.grid(row=r_index, column=i+1, sticky="w", **item_style)
 
                 # attach trace to update storage
                 if key == "lanes":
                     var.trace_add("write", lambda *a, idx=i, v=var, k=key: self._update_segment(idx, k, self._sanitize_lanes(v.get())))
                 else:
-                    # Pass the variable itself so _safe_float can tolerate blanks safely
-                    var.trace_add("write", lambda *a, idx=i, v=var, k=key: self._update_segment(idx, k, self._safe_float(v, 0.0)))
+                    # Get the value from the variable (string) and convert to float safely
+                    var.trace_add("write", lambda *a, idx=i, v=var, k=key: self._update_segment(idx, k, self._safe_float(v.get(), 0.0)))
 
                 row_vars.append(var)
             self._cell_vars.append(row_vars)
@@ -2041,6 +2253,10 @@ class TunnelGeometry(ttk.LabelFrame):
         self.grid_frame.columnconfigure(0, weight=0)
         for c in range(1, n+1):
             self.grid_frame.columnconfigure(c, weight=1)
+        
+        # Recompute averages after grid rebuild (only if variables are initialized)
+        if hasattr(self, 'avg_ar_var') and hasattr(self, 'avg_lp_var'):
+            self._recompute_dr_and_averages(self.avg_ar_var, self.avg_lp_var)
 
     def _update_segment(self, idx, key, value):
         if 0 <= idx < len(self.segments):
@@ -2055,7 +2271,7 @@ class TunnelGeometry(ttk.LabelFrame):
         # Recompute averages after any segment change, especially for Ar/Lp
         if key in ("ar", "lp"):
             try:
-                self._recompute_dr_and_averages(tk.DoubleVar(), tk.DoubleVar())
+                self._recompute_dr_and_averages(self.avg_ar_var, self.avg_lp_var)
             except Exception:
                 pass
 
@@ -2069,6 +2285,8 @@ class TunnelGeometry(ttk.LabelFrame):
     @staticmethod
     def _safe_float(v, default=0.0):
         try:
+            if v == "" or v is None:
+                return default
             return float(v)
         except Exception:
             return default
@@ -2226,7 +2444,11 @@ class VentilationVolumeTab(ttk.Frame):
         elevation_group1 = ttk.Frame(controls1)
         elevation_group1.pack(side="left", padx=8)
         ttk.Label(elevation_group1, text=t["averageElevationLabel"] + ":").pack(side="left")
-        ttk.Entry(elevation_group1, textvariable=self.avgElevationFromToTo, width=10).pack(side="left")
+        vcmd_elevation1 = (self.register(NumericValidator.validate_numeric), '%S', '%d')
+        elev_entry1 = ttk.Entry(elevation_group1, textvariable=self.avgElevationFromToTo, width=10, validate="key", validatecommand=vcmd_elevation1)
+        elev_entry1.pack(side="left")
+        elev_entry1.bind('<FocusIn>', NumericValidator.clear_on_focus)
+        elev_entry1.bind('<FocusOut>', NumericValidator.default_to_zero_on_focusout)
 
         # Ventilation Design Speed (80/100/120)
         speed_group1 = ttk.Frame(controls1)
@@ -2283,7 +2505,11 @@ class VentilationVolumeTab(ttk.Frame):
         elevation_group2 = ttk.Frame(controls2)
         elevation_group2.pack(side="left", padx=8)
         ttk.Label(elevation_group2, text=t["averageElevationLabel"] + ":").pack(side="left")
-        ttk.Entry(elevation_group2, textvariable=self.avgElevationToToFrom, width=10).pack(side="left")
+        vcmd_elevation2 = (self.register(NumericValidator.validate_numeric), '%S', '%d')
+        elev_entry2 = ttk.Entry(elevation_group2, textvariable=self.avgElevationToToFrom, width=10, validate="key", validatecommand=vcmd_elevation2)
+        elev_entry2.pack(side="left")
+        elev_entry2.bind('<FocusIn>', NumericValidator.clear_on_focus)
+        elev_entry2.bind('<FocusOut>', NumericValidator.default_to_zero_on_focusout)
 
         # Ventilation Design Speed (80/100/120)
         speed_group2 = ttk.Frame(controls2)
@@ -3021,53 +3247,58 @@ class VentilationVolumeTab(ttk.Frame):
         row_num = len(rows_list) + 1
         
         # Create variables for this row
+        # Use StringVar for all row fields so they can be blank while editing
         row_vars = {
-            'year': tk.IntVar(value=2024),
-            'passenger_vehicles': tk.DoubleVar(value=0.0),
-            'bus_small': tk.DoubleVar(value=0.0),
-            'bus_large': tk.DoubleVar(value=0.0),
-            'truck_small': tk.DoubleVar(value=0.0),
-            'truck_medium': tk.DoubleVar(value=0.0),
-            'truck_large': tk.DoubleVar(value=0.0),
-            'truck_special': tk.DoubleVar(value=0.0),
+            'year': tk.StringVar(value="2024"),
+            'passenger_vehicles': tk.StringVar(value="0.0"),
+            'bus_small': tk.StringVar(value="0.0"),
+            'bus_large': tk.StringVar(value="0.0"),
+            'truck_small': tk.StringVar(value="0.0"),
+            'truck_medium': tk.StringVar(value="0.0"),
+            'truck_large': tk.StringVar(value="0.0"),
+            'truck_special': tk.StringVar(value="0.0"),
         }
         
         # Create entries
         entries = []
-        entry_year = ttk.Entry(rows_frame, textvariable=row_vars['year'], width=8)
+        vcmd_int = (self.register(NumericValidator.validate_numeric), '%S', '%d')
+        
+        entry_year = ttk.Entry(rows_frame, textvariable=row_vars['year'], width=8, validate="key", validatecommand=vcmd_int)
         entry_year.grid(row=row_num, column=0, padx=5, pady=2)
         entries.append(entry_year)
         
-        entry_pv = ttk.Entry(rows_frame, textvariable=row_vars['passenger_vehicles'], width=10)
+        entry_pv = ttk.Entry(rows_frame, textvariable=row_vars['passenger_vehicles'], width=10, validate="key", validatecommand=vcmd_int)
         entry_pv.grid(row=row_num, column=1, padx=5, pady=2)
         entries.append(entry_pv)
         
-        entry_bs = ttk.Entry(rows_frame, textvariable=row_vars['bus_small'], width=10)
+        entry_bs = ttk.Entry(rows_frame, textvariable=row_vars['bus_small'], width=10, validate="key", validatecommand=vcmd_int)
         entry_bs.grid(row=row_num, column=2, padx=5, pady=2)
         entries.append(entry_bs)
         
-        entry_bl = ttk.Entry(rows_frame, textvariable=row_vars['bus_large'], width=10)
+        entry_bl = ttk.Entry(rows_frame, textvariable=row_vars['bus_large'], width=10, validate="key", validatecommand=vcmd_int)
         entry_bl.grid(row=row_num, column=3, padx=5, pady=2)
         entries.append(entry_bl)
         
-        entry_ts = ttk.Entry(rows_frame, textvariable=row_vars['truck_small'], width=10)
+        entry_ts = ttk.Entry(rows_frame, textvariable=row_vars['truck_small'], width=10, validate="key", validatecommand=vcmd_int)
         entry_ts.grid(row=row_num, column=4, padx=5, pady=2)
         entries.append(entry_ts)
         
-        entry_tm = ttk.Entry(rows_frame, textvariable=row_vars['truck_medium'], width=10)
+        entry_tm = ttk.Entry(rows_frame, textvariable=row_vars['truck_medium'], width=10, validate="key", validatecommand=vcmd_int)
         entry_tm.grid(row=row_num, column=5, padx=5, pady=2)
         entries.append(entry_tm)
         
-        entry_tl = ttk.Entry(rows_frame, textvariable=row_vars['truck_large'], width=10)
+        entry_tl = ttk.Entry(rows_frame, textvariable=row_vars['truck_large'], width=10, validate="key", validatecommand=vcmd_int)
         entry_tl.grid(row=row_num, column=6, padx=5, pady=2)
         entries.append(entry_tl)
         
-        entry_tsp = ttk.Entry(rows_frame, textvariable=row_vars['truck_special'], width=10)
+        entry_tsp = ttk.Entry(rows_frame, textvariable=row_vars['truck_special'], width=10, validate="key", validatecommand=vcmd_int)
         entry_tsp.grid(row=row_num, column=7, padx=5, pady=2)
         entries.append(entry_tsp)
         
         # Bind paste functionality to all entries
         for entry in entries:
+            entry.bind('<FocusIn>', NumericValidator.clear_on_focus)
+            entry.bind('<FocusOut>', NumericValidator.default_to_zero_on_focusout)
             entry.bind('<Control-v>', lambda e, rv=row_vars, dk=direction_key: self._handle_paste(e, rv, dk))
             entry.bind('<Button-3>', lambda e, rv=row_vars, dk=direction_key: self._show_paste_menu(e, rv, dk))
         
@@ -3166,18 +3397,19 @@ class VentilationVolumeTab(ttk.Frame):
         temp_rows = rows_list[:]
         rows_list.clear()
         
+        vcmd_int = (self.register(NumericValidator.validate_numeric), '%S', '%d')
         for row_data in temp_rows:
             row_num = len(rows_list) + 1
             vars_dict = row_data['vars']
             
-            ttk.Entry(rows_frame, textvariable=vars_dict['year'], width=8).grid(row=row_num, column=0, padx=5, pady=2)
-            ttk.Entry(rows_frame, textvariable=vars_dict['passenger_vehicles'], width=10).grid(row=row_num, column=1, padx=5, pady=2)
-            ttk.Entry(rows_frame, textvariable=vars_dict['bus_small'], width=10).grid(row=row_num, column=2, padx=5, pady=2)
-            ttk.Entry(rows_frame, textvariable=vars_dict['bus_large'], width=10).grid(row=row_num, column=3, padx=5, pady=2)
-            ttk.Entry(rows_frame, textvariable=vars_dict['truck_small'], width=10).grid(row=row_num, column=4, padx=5, pady=2)
-            ttk.Entry(rows_frame, textvariable=vars_dict['truck_medium'], width=10).grid(row=row_num, column=5, padx=5, pady=2)
-            ttk.Entry(rows_frame, textvariable=vars_dict['truck_large'], width=10).grid(row=row_num, column=6, padx=5, pady=2)
-            ttk.Entry(rows_frame, textvariable=vars_dict['truck_special'], width=10).grid(row=row_num, column=7, padx=5, pady=2)
+            ttk.Entry(rows_frame, textvariable=vars_dict['year'], width=8, validate="key", validatecommand=vcmd_int).grid(row=row_num, column=0, padx=5, pady=2)
+            ttk.Entry(rows_frame, textvariable=vars_dict['passenger_vehicles'], width=10, validate="key", validatecommand=vcmd_int).grid(row=row_num, column=1, padx=5, pady=2)
+            ttk.Entry(rows_frame, textvariable=vars_dict['bus_small'], width=10, validate="key", validatecommand=vcmd_int).grid(row=row_num, column=2, padx=5, pady=2)
+            ttk.Entry(rows_frame, textvariable=vars_dict['bus_large'], width=10, validate="key", validatecommand=vcmd_int).grid(row=row_num, column=3, padx=5, pady=2)
+            ttk.Entry(rows_frame, textvariable=vars_dict['truck_small'], width=10, validate="key", validatecommand=vcmd_int).grid(row=row_num, column=4, padx=5, pady=2)
+            ttk.Entry(rows_frame, textvariable=vars_dict['truck_medium'], width=10, validate="key", validatecommand=vcmd_int).grid(row=row_num, column=5, padx=5, pady=2)
+            ttk.Entry(rows_frame, textvariable=vars_dict['truck_large'], width=10, validate="key", validatecommand=vcmd_int).grid(row=row_num, column=6, padx=5, pady=2)
+            ttk.Entry(rows_frame, textvariable=vars_dict['truck_special'], width=10, validate="key", validatecommand=vcmd_int).grid(row=row_num, column=7, padx=5, pady=2)
             
             delete_btn = ttk.Button(rows_frame, text="Delete", command=lambda idx=len(rows_list): self._delete_traffic_row(idx, direction_key))
             delete_btn.grid(row=row_num, column=8, padx=5, pady=2)
@@ -3207,6 +3439,34 @@ class VentilationVolumeTab(ttk.Frame):
         """Compute traffic estimation for all rows."""
         traffic_logic = self.traffic_logic_From_To if direction_key == "From_To" else self.traffic_logic_To_From
         rows_list = self.traffic_rows_From_To if direction_key == "From_To" else self.traffic_rows_To_From
+        
+        # Validate all input fields have numeric values before computing
+        invalid_fields = []
+        for idx, row_data in enumerate(rows_list, start=1):
+            vars_dict = row_data['vars']
+            for field_name, var in vars_dict.items():
+                value_str = "<error>"  # Default if we can't get the value
+                try:
+                    value_str = str(var.get()).strip()
+                    # Treat empty as invalid to prevent compute errors
+                    if value_str == "":
+                        invalid_fields.append(f"Row {idx}: {field_name} is blank")
+                        continue
+                    # Try to convert to appropriate type (int for year, float for others)
+                    if field_name == 'year':
+                        int(value_str)
+                    else:
+                        float(value_str)
+                except (ValueError, AttributeError, TypeError):
+                    invalid_fields.append(f"Row {idx}: {field_name} = '{value_str}'")
+        
+        if invalid_fields:
+            error_msg = "Found non-numeric values in traffic data:\n\n" + "\n".join(invalid_fields[:10])
+            if len(invalid_fields) > 10:
+                error_msg += f"\n... and {len(invalid_fields) - 10} more invalid fields"
+            error_msg += "\n\nPlease remove alphabetic or special characters from numeric fields."
+            messagebox.showerror("Invalid Input", error_msg)
+            return
         
         try:
             # Clear previous batch
@@ -3597,33 +3857,6 @@ class VentilationVolumeTab(ttk.Frame):
             except Exception as e:
                 text_widget.insert("end", f"Error generating Vehicles/km,lane table: {str(e)}\n\n")
 
-            # Add pressure calculations table (ΔPr, ΔPm, ΔPt, ΔPq)
-            try:
-                text_widget.insert("end", "Table: Pressure Calculations\n\n")
-                pressure_headers = [
-                    "ΔPr (Pa)",
-                    "ΔPm (Pa)",
-                    "ΔPt (Pa)",
-                    "ΔPq (Pa)",
-                ]
-                pressure_col_widths = [15, 15, 15, 15]
-                
-                def format_pressure_row(values):
-                    return " ".join(str(val).ljust(width) for val, width in zip(values, pressure_col_widths))
-                
-                text_widget.insert("end", format_pressure_row(pressure_headers) + "\n")
-                text_widget.insert("end", format_pressure_row(["-" * (w - 1) for w in pressure_col_widths]) + "\n")
-                
-                pressure_data_row = [
-                    f"{res.delta_Pr:.4f}",
-                    f"{res.delta_Pm:.4f}",
-                    f"{res.delta_Pt:.4f}",
-                    f"{res.delta_Pq:.4f}",
-                ]
-                text_widget.insert("end", format_pressure_row(pressure_data_row) + "\n")
-                text_widget.insert("end", "\n")
-            except Exception as e:
-                text_widget.insert("end", f"Error displaying pressure calculations: {str(e)}\n\n")
 
         # Force scroll to the top so first information is visible
         text_widget.yview_moveto(0.0)
@@ -3865,6 +4098,33 @@ if __name__ == "__main__":
     
     # Store reference in volume_tab so it can refresh capacity tab when traffic estimation runs
     ventilation_volume_tab.ventilation_capacity_tab = ventilation_capacity_tab
+    
+    # Add tab change event handler to check traffic volume estimation for Ventilation Capacity tab
+    def on_notebook_tab_change(event=None):
+        """Check if user is trying to access Ventilation Capacity tab before traffic estimation is done."""
+        selected_tab = notebook.index(notebook.select())
+        # Ventilation Capacity tab is at index 3 (0: Ventilation, 1: Jet Fan, 2: Results, 3: Capacity)
+        if selected_tab == 3:
+            # Check if traffic volume is estimated
+            cache = ventilation_volume_tab.vehicle_hr_lane_cache if ventilation_volume_tab else {}
+            has_from_to_data = bool(cache.get("From_To", {}))
+            has_to_from_data = bool(cache.get("To_From", {}))
+            
+            if not (has_from_to_data or has_to_from_data):
+                messagebox.showwarning(
+                    "Traffic Estimation Required",
+                    "Traffic Volume Estimation must be completed first!\n\n"
+                    "Please:\n"
+                    "1. Go to 'Calculate Ventilation' tab\n"
+                    "2. Enter tunnel geometry and sections\n"
+                    "3. Enter traffic data (AADT, trucks percentage)\n"
+                    "4. Click 'Estimate Traffic Volume' button\n\n"
+                    "After traffic estimation is complete, you can use the Ventilation Capacity tab."
+                )
+                # Switch back to Ventilation Volume tab
+                notebook.select(0)
+    
+    notebook.bind("<<NotebookTabChanged>>", on_notebook_tab_change)
     
     # Add buttons to button frame
     def compute_summary():
