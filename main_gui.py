@@ -4180,13 +4180,14 @@ if __name__ == "__main__":
 
         # --- Diesel truck/bus qo* static table tab ---
         diesel_frame = ttk.Frame(diesel_tab, padding="10 10 10 10")
-        diesel_frame.pack(fill="both", expand=True)
+        diesel_frame.pack(fill="x", expand=False, anchor="center")
 
         # Title row spanning all columns
         table_container = ttk.Frame(diesel_frame)
-        table_container.pack(anchor="w")
+        table_container.pack(anchor="center", pady=10)
         for col in range(6):
-            table_container.columnconfigure(col, weight=1)
+            # increase minimum column width to make columns wider (approx. double)
+            table_container.columnconfigure(col, weight=1, minsize=240)
 
         ttk.Label(
             table_container,
@@ -4196,6 +4197,8 @@ if __name__ == "__main__":
             relief="solid",
             padding=5,
             background="#e0e0e0",
+            anchor="center",
+            justify="center",
         ).grid(row=0, column=0, columnspan=6, sticky="nsew")
 
         # Multi-row header
@@ -4207,6 +4210,8 @@ if __name__ == "__main__":
             relief="solid",
             padding=5,
             background="#e0e0e0",
+            anchor="center",
+            justify="center",
         ).grid(row=1, column=0, rowspan=4, sticky="nsew")
 
         ttk.Label(
@@ -4217,6 +4222,8 @@ if __name__ == "__main__":
             relief="solid",
             padding=5,
             background="#e0e0e0",
+            anchor="center",
+            justify="center",
         ).grid(row=1, column=1, rowspan=4, sticky="nsew")
 
         ttk.Label(
@@ -4227,6 +4234,8 @@ if __name__ == "__main__":
             relief="solid",
             padding=5,
             background="#e0e0e0",
+            anchor="center",
+            justify="center",
         ).grid(row=1, column=2, columnspan=4, sticky="nsew")
 
         ttk.Label(
@@ -4237,6 +4246,8 @@ if __name__ == "__main__":
             relief="solid",
             padding=5,
             background="#e0e0e0",
+            anchor="center",
+            justify="center",
         ).grid(row=2, column=2, columnspan=4, sticky="nsew")
 
         for c_idx, speed in enumerate(["5", "10", "20", "40"], start=2):
@@ -4248,6 +4259,8 @@ if __name__ == "__main__":
                 relief="solid",
                 padding=5,
                 background="#e0e0e0",
+                anchor="center",
+                justify="center",
             ).grid(row=3, column=c_idx, sticky="nsew")
 
         for c_idx, rng in enumerate(["80-130", "160-250", "300-400", "400-600"], start=2):
@@ -4259,6 +4272,8 @@ if __name__ == "__main__":
                 relief="solid",
                 padding=5,
                 background="#f2f2f2",
+                anchor="center",
+                justify="center",
             ).grid(row=4, column=c_idx, sticky="nsew")
 
         rows = [
@@ -4301,6 +4316,206 @@ if __name__ == "__main__":
                     background=row_bg,
                     anchor="center",
                 ).grid(row=r_idx, column=c_idx, sticky="nsew")
+        
+        # Spacer
+        ttk.Label(diesel_frame, text="").pack(pady=10)
+        
+        # Second table: Standard application value of emission by vehicle type (정확한 구조)
+        table_container_2 = ttk.Frame(diesel_frame)
+        table_container_2.pack(anchor="center", pady=10)
+        for col in range(5):
+            # increase minimum column width for second table (now 5 columns)
+            table_container_2.columnconfigure(col, weight=1, minsize=300)
+
+        # Main title row
+        ttk.Label(
+            table_container_2,
+            text="Standard Application Value of Emission by Vehicle Type",
+            font=("Arial", 10, "bold"),
+            borderwidth=1,
+            justify="center",
+            relief="solid",
+            padding=5,
+            background="#e0e0e0",
+        ).grid(row=0, column=0, columnspan=5, sticky="nsew")
+
+        # Header row with main columns
+        # Split '구 분' into two subcolumns (col 0 and col 1)
+        ttk.Label(
+            table_container_2,
+            text="구 분",
+            font=("Arial", 9, "bold"),
+            borderwidth=1,
+            relief="solid",
+            padding=5,
+            background="#e0e0e0",
+            anchor="center",
+        ).grid(row=1, column=0, columnspan=2, sticky="nsew")
+
+        # Empty sub-headers under '구 분' to create the two-column split
+        ttk.Label(
+            table_container_2,
+            text="",
+            borderwidth=1,
+            relief="solid",
+            padding=3,
+            background="#e0e0e0",
+        ).grid(row=2, column=0, sticky="nsew")
+        ttk.Label(
+            table_container_2,
+            text="",
+            borderwidth=1,
+            relief="solid",
+            padding=3,
+            background="#e0e0e0",
+        ).grid(row=2, column=1, sticky="nsew")
+
+        ttk.Label(
+            table_container_2,
+            text="배출 허용 허용기준\n[g/km]",
+            font=("Arial", 8, "bold"),
+            borderwidth=1,
+            relief="solid",
+            padding=3,
+            background="#e0e0e0",
+            anchor="center",
+            justify="center",
+        ).grid(row=1, column=2, columnspan=2, sticky="nsew")
+
+        ttk.Label(
+            table_container_2,
+            text="기준배출량\n[m³/h·대]",
+            font=("Arial", 8, "bold"),
+            borderwidth=1,
+            relief="solid",
+            padding=3,
+            background="#e0e0e0",
+            anchor="center",
+            justify="center",
+        ).grid(row=1, column=4, rowspan=2, sticky="nsew")
+
+       
+
+        # Rebuild data rows into 5 columns: Classification group split into two subcolumns
+        # Top two rows are fuel types under a merged '승용차' label
+        fuel_rows = ["휘발유", "경유"]
+        other_classifications = [
+            "소형버스",
+            "소형트럭",
+            "중형트럭",
+            "대형버스",
+            "대형트럭",
+            "특수트럭",
+            "합계/공차",
+        ]
+
+        # Combine into display order: two fuel rows then the other classifications
+        total_rows = fuel_rows + other_classifications
+
+        # Mid1 (first middle column) — now empty for the first two rows
+        mid1 = ["", "", "", "", "111", "226", "250", "323.5", "75"]
+
+        # Mid2: first four numeric allowances, next four 'PS', last 'V (%) ='
+        mid2 = ["0", "0.0045", "0.0045", "0.0045", "PS", "PS", "PS", "PS", "V (%) ="]
+
+        # Mid3: first four '이하', then ['', '0.01', '[ g/kw*h ]', '이하', '41.3']
+        mid3 = ["이하", "이하", "이하", "이하", "", "0.01", "[ g/kw*h ]", "이하", "41.3"]
+
+        # Emission final column values (strings)
+        emissions = ["0.0000", "0.0712", "0.0712", "0.0712", "3.2693", "7.7917", "8.6191", "11.1532", "km/h"]
+
+
+        for idx in range(len(total_rows)):
+            r_idx = 3 + idx
+            row_bg = "#ffffff" if (r_idx % 2 == 1) else "#f9f9f9"
+
+            # First two rows: merged '승용차' on left (col 0), fuel type on right (col 1)
+            if idx == 0:
+                # Merged classification cell '승용차' spanning the two fuel rows
+                ttk.Label(
+                    table_container_2,
+                    text="승   용   차",
+                    borderwidth=1,
+                    relief="solid",
+                    padding=5,
+                    background=row_bg,
+                    anchor="center",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=0, rowspan=2, sticky="nsew")
+
+                # Right subcell for first fuel row
+                ttk.Label(
+                    table_container_2,
+                    text=total_rows[idx],
+                    borderwidth=1,
+                    relief="solid",
+                    padding=5,
+                    background=row_bg,
+                    anchor="center",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=1, sticky="nsew")
+
+            elif idx == 1:
+                # Second fuel row: occupy right subcolumn only
+                ttk.Label(
+                    table_container_2,
+                    text=total_rows[idx],
+                    borderwidth=1,
+                    relief="solid",
+                    padding=5,
+                    background=row_bg,
+                    anchor="center",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=1, sticky="nsew")
+
+            else:
+                # Other classifications span both subcolumns under '구 분'
+                ttk.Label(
+                    table_container_2,
+                    text=total_rows[idx],
+                    borderwidth=1,
+                    relief="solid",
+                    padding=5,
+                    background=row_bg,
+                    anchor="w",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=0, columnspan=2, sticky="nsew")
+
+            # Mid1 (column 2)
+            ttk.Label(
+                table_container_2,
+                text=mid1[idx],
+                borderwidth=1,
+                relief="solid",
+                padding=5,
+                background=row_bg,
+                anchor="center",
+                font=("Arial", 8),
+            ).grid(row=r_idx, column=2, sticky="nsew")
+
+            # Mid2 (column 3)
+            ttk.Label(
+                table_container_2,
+                text=mid2[idx],
+                borderwidth=1,
+                relief="solid",
+                padding=5,
+                background=row_bg,
+                anchor="center",
+                font=("Arial", 8),
+            ).grid(row=r_idx, column=3, sticky="nsew")
+
+            # Emission (column 4)
+            ttk.Label(
+                table_container_2,
+                text=emissions[idx],
+                borderwidth=1,
+                relief="solid",
+                padding=5,
+                background=row_bg,
+                anchor="center",
+                font=("Arial", 8),
+            ).grid(row=r_idx, column=4, sticky="nsew")
         
         # Title
         title_label = ttk.Label(main_frame, text="Speed-Grade Correction Factor Tables (fiv)", 

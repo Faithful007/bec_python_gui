@@ -1,0 +1,2 @@
+# No external dependencies required - uses standard library (tkinter)
+# tkinter comes bundled with Python on Windows
