@@ -759,17 +759,73 @@ class ResultsTab(ttk.Frame):
         self.text_widget.config(state="normal")
         self.text_widget.delete(1.0, "end")
 
-        # Header
-        self._add_text("="*80 + "\n", "heading")
-        self._add_text("TUNNEL VENTILATION CALCULATION RESULTS\n", "heading")
-        self._add_text("="*80 + "\n\n", "heading")
+        # Spacer
+        ttk.Label(diesel_frame, text="").pack(pady=10)
+        
+        # Second table: Standard application value of emission by vehicle type (정확한 구조)
+        table_container_2 = ttk.Frame(diesel_frame)
+        table_container_2.pack(fill="x", pady=10)
+        for col in range(6):
+            # Set all 6 columns to have equal weight and minsize for alignment
+            table_container_2.columnconfigure(col, weight=1, minsize=180)
+        # ...existing code for table_container_2...
 
-        # Input parameters
-        self._add_text("INPUT PARAMETERS\n", "subheading")
-        self._add_text("-" * 80 + "\n")
-        self._add_text(f"Driving speed, V_kmh (velocity):   {inp.V_kmh} [km/h]\n")
-        self._add_text(f"Required ventilation (Qtreq):       {inp.Qtreq} [m³/s]\n")
-        self._add_text(f"Natural wind speed, (Un): {results.Un} [m/s]\n")
+        # --- New table: 매연의 총배출량 Qs[m2/h] ---
+        qs_title = ttk.Label(
+            diesel_tab,
+            text="매연의 총배출량 Qs[m2/h]",
+            font=("Arial", 11, "bold"),
+            background="#e0e0e0",
+            borderwidth=1,
+            relief="solid",
+            anchor="center",
+            justify="center",
+            padding=5,
+        )
+        qs_title.grid(row=2, column=0, sticky="nsew", padx=40, pady=(30, 0))
+
+        qs_table = ttk.Frame(diesel_tab)
+        qs_table.grid(row=3, column=0, sticky="nsew", padx=40, pady=(0, 30))
+        qs_headers = [
+            "직주", "속도 (km/h)", "구분", "승용차-휘발유", "승용차-경유", "버스-소형", "버스-대형", "트럭-소형", "트럭-중형", "트럭-대형", "트럭-특수", "합계"
+        ]
+        for col, header in enumerate(qs_headers):
+            ttk.Label(
+                qs_table,
+                text=header,
+                font=("Arial", 9, "bold"),
+                borderwidth=1,
+                relief="solid",
+                padding=5,
+                background="#e0e0e0",
+                anchor="center",
+                justify="center",
+            ).grid(row=0, column=col, sticky="nsew")
+            qs_table.columnconfigure(col, weight=1, minsize=70)
+
+        qs_data = [
+            ["", "10", "1구간", "0.0", "50.9", "0.8712", "7.7917", "0.8712", "3.2693", "8.6191", "11.1532", "162.47"],
+            ["", "10", "2구간", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.00"],
+            ["", "20", "1구간", "67.8", "62.4", "9.4", "26.9", "27.7", "3.4", "10.2", "205.92"],
+            ["", "30", "1구간", "82.4", "68.3", "9.7", "29.5", "30.7", "4.1", "11.6", "236.10"],
+            ["", "40", "1구간", "84.0", "69.0", "9.9", "29.6", "31.5", "4.0", "11.8", "239.73"],
+            ["", "50", "1구간", "85.0", "67.8", "10.0", "30.0", "31.3", "4.0", "11.7", "239.83"],
+            ["", "60", "1구간", "85.0", "67.8", "10.0", "30.0", "31.3", "4.0", "11.7", "239.83"],
+            ["", "70", "1구간", "85.0", "67.8", "10.0", "30.0", "31.3", "4.0", "11.7", "239.83"],
+            ["", "80", "1구간", "85.8", "68.7", "10.0", "31.2", "32.5", "4.5", "12.2", "245.10"],
+        ]
+        for r, row in enumerate(qs_data, start=1):
+            for c, val in enumerate(row):
+                ttk.Label(
+                    qs_table,
+                    text=val,
+                    borderwidth=1,
+                    relief="solid",
+                    padding=5,
+                    background="#ffffff" if r % 2 == 1 else "#f9f9f9",
+                    anchor="center",
+                    font=("Arial", 8),
+                ).grid(row=r, column=c, sticky="nsew")
         # Imax and road type inputs removed from UI; omitted from display
         self._add_text(f"Number of lanes:                  {inp.lanes}\n")
         self._add_text(f"Tunnel cross-sectional area, Ar:   {inp.Ar} [m²]\n")
@@ -4179,15 +4235,27 @@ if __name__ == "__main__":
         main_frame.pack(fill="both", expand=True)
 
         # --- Diesel truck/bus qo* static table tab ---
-        diesel_frame = ttk.Frame(diesel_tab, padding="10 10 10 10")
-        diesel_frame.pack(fill="x", expand=False, anchor="center")
+        # Make diesel tab scrollable
+        diesel_canvas = tk.Canvas(diesel_tab, bg="white")
+        diesel_v_scrollbar = ttk.Scrollbar(diesel_tab, orient="vertical", command=diesel_canvas.yview)
+        diesel_h_scrollbar = ttk.Scrollbar(diesel_tab, orient="horizontal", command=diesel_canvas.xview)
+        diesel_canvas.configure(yscrollcommand=diesel_v_scrollbar.set, xscrollcommand=diesel_h_scrollbar.set)
+        diesel_v_scrollbar.pack(side="right", fill="y")
+        diesel_h_scrollbar.pack(side="bottom", fill="x")
+        diesel_canvas.pack(side="left", fill="both", expand=True)
+
+        diesel_scrollable_frame = ttk.Frame(diesel_canvas, padding="10 10 10 10")
+        diesel_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: diesel_canvas.configure(scrollregion=diesel_canvas.bbox("all"))
+        )
+        diesel_canvas.create_window((0, 0), window=diesel_scrollable_frame, anchor="nw")
 
         # Title row spanning all columns
-        table_container = ttk.Frame(diesel_frame)
+        table_container = ttk.Frame(diesel_scrollable_frame)
         table_container.pack(anchor="center", pady=10)
         for col in range(6):
-            # increase minimum column width to make columns wider (approx. double)
-            table_container.columnconfigure(col, weight=1, minsize=240)
+            table_container.columnconfigure(col, weight=1, minsize=100)  # Reduced width
 
         ttk.Label(
             table_container,
@@ -4318,26 +4386,116 @@ if __name__ == "__main__":
                 ).grid(row=r_idx, column=c_idx, sticky="nsew")
         
         # Spacer
-        ttk.Label(diesel_frame, text="").pack(pady=10)
+        ttk.Label(diesel_scrollable_frame, text="").pack(pady=10)
         
         # Second table: Standard application value of emission by vehicle type (정확한 구조)
-        table_container_2 = ttk.Frame(diesel_frame)
-        table_container_2.pack(anchor="center", pady=10)
-        for col in range(5):
-            # increase minimum column width for second table (now 5 columns)
-            table_container_2.columnconfigure(col, weight=1, minsize=300)
+        table_container_2 = ttk.Frame(diesel_scrollable_frame)
+        table_container_2.pack(fill="x", pady=10)
+        for col in range(6):
+            table_container_2.columnconfigure(col, weight=1, minsize=80)  # Reduced width
+        # --- Table 3: 매연의 총배출량 Qs[m2/h] ---
+        qs_title = ttk.Label(
+            diesel_scrollable_frame,
+            text="매연의 총배출량 Qs[m2/h]",
+            font=("Arial", 11, "bold"),
+            background="#e0e0e0",
+            borderwidth=1,
+            relief="solid",
+            anchor="center",
+            justify="center",
+            padding=5,
+        )
+        qs_title.pack(fill="x", pady=(20, 0), anchor="center")
 
-        # Main title row
+        qs_table = ttk.Frame(diesel_scrollable_frame)
+        qs_table.pack(fill="x", pady=(0, 20), anchor="center")
+
+
+        # --- Updated header to match specified structure and expand header/subheader rows ---
+        header_font = ("Arial", 10, "bold")
+        subheader_font = ("Arial", 9)
+        header_pad = 6
+        subheader_pad = 4
+        # Row 0: Main categories (merged cells)
+        ttk.Label(qs_table, text="진주", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=0, rowspan=1, sticky="nsew")
+        ttk.Label(qs_table, text="구분", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=1, rowspan=1, sticky="nsew")
+        ttk.Label(qs_table, text="승용차", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=2, columnspan=2, sticky="nsew")
+        ttk.Label(qs_table, text="버스", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=4, columnspan=2, sticky="nsew")
+        ttk.Label(qs_table, text="트럭", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=6, columnspan=4, sticky="nsew")
+        ttk.Label(qs_table, text="합계", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=10, rowspan=1, sticky="nsew")
+
+        # Row 1: Subheaders (aligned under merged columns)
+        # Subheader row: column 0 is '속도 (km/h)', column 1 is blank (for '구분' header above)
+        ttk.Label(qs_table, text="속도 (km/h)", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=0, sticky="nsew")
+        ttk.Label(qs_table, text="", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5").grid(row=1, column=1, sticky="nsew")
+        ttk.Label(qs_table, text="휘발유", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=2, sticky="nsew")
+        ttk.Label(qs_table, text="경유", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=3, sticky="nsew")
+        ttk.Label(qs_table, text="소형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=4, sticky="nsew")
+        ttk.Label(qs_table, text="대형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=5, sticky="nsew")
+        ttk.Label(qs_table, text="소형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=6, sticky="nsew")
+        ttk.Label(qs_table, text="중형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=7, sticky="nsew")
+        ttk.Label(qs_table, text="대형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=8, sticky="nsew")
+        ttk.Label(qs_table, text="특수", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=9, sticky="nsew")
+
+        # Explicitly set row minsize for header and subheader rows (expand to 3x normal row height)
+        qs_table.rowconfigure(0, minsize=100)
+        
+
+        # Column config - set minsize for each column only once
+        wider_col_widths = [110, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90]
+        for col in range(11):
+            qs_table.columnconfigure(col, weight=1, minsize=wider_col_widths[col])
+
+        speeds = [10, 20, 30, 40, 50, 60, 70, 80]
+        section_names = ["1구간", "2구간", "3구간"]
+        # Example data for each speed and section (fill with zeros except for 1구간)
+        # All vehicle cells after the section column are set to '0.0' by default
+        qs_values = {speed: ["0.0"] * 9 for speed in speeds}
+        row_idx = 1
+        # Store references to Entry widgets and sum labels for updating
+        qs_entries = []
+        for speed in speeds:
+            ttk.Label(qs_table, text=str(speed), borderwidth=1, relief="solid", padding=3, background="#f0f0f0", anchor="center", font=("Arial", 8)).grid(row=row_idx, column=0, rowspan=3, sticky="nsew")
+            for i, section in enumerate(section_names):
+                ttk.Label(qs_table, text=section, borderwidth=1, relief="solid", padding=3, background="#f0f0f0", anchor="center", font=("Arial", 8)).grid(row=row_idx, column=1, sticky="nsew")
+                entry_vars = [tk.StringVar(value="0.0") for _ in range(8)]
+                entry_widgets = []
+                sum_label = ttk.Label(qs_table, text="0.0", borderwidth=1, relief="solid", padding=3, background="#e8f8e8", anchor="center", font=("Arial", 8))
+                sum_label.grid(row=row_idx, column=10, sticky="nsew")
+                def make_update_sum(entry_vars=entry_vars, sum_label=sum_label):
+                    def update_sum(*args):
+                        vals = []
+                        for var in entry_vars:
+                            try:
+                                vals.append(float(var.get()))
+                            except Exception:
+                                vals.append(0.0)
+                        sum_val = str(round(sum(vals), 2))
+                        sum_label.config(text=sum_val)
+                    return update_sum
+                # Create Entry widgets for 8 vehicle columns
+                for c in range(8):
+                    entry = ttk.Entry(qs_table, textvariable=entry_vars[c], width=7, font=("Arial", 8), justify="center")
+                    entry.grid(row=row_idx, column=c+2, sticky="nsew")
+                    entry_widgets.append(entry)
+                    entry_vars[c].trace_add("write", make_update_sum(entry_vars, sum_label))
+                # Initialize sum
+                make_update_sum(entry_vars, sum_label)()
+                qs_entries.append((entry_vars, entry_widgets, sum_label))
+                row_idx += 1
+
+        # Main title row (centered)
         ttk.Label(
             table_container_2,
             text="Standard Application Value of Emission by Vehicle Type",
-            font=("Arial", 10, "bold"),
+            font=("Arial", 11, "bold"),
             borderwidth=1,
             justify="center",
+            anchor="center",
             relief="solid",
             padding=5,
             background="#e0e0e0",
-        ).grid(row=0, column=0, columnspan=5, sticky="nsew")
+        ).grid(row=0, column=0, columnspan=6, sticky="nsew")
 
         # Header row with main columns
         # Split '구 분' into two subcolumns (col 0 and col 1)
@@ -4384,6 +4542,17 @@ if __name__ == "__main__":
 
         ttk.Label(
             table_container_2,
+            text="",
+            font=("Arial", 8, "bold"),
+            borderwidth=1,
+            relief="solid",
+            padding=3,
+            background="#e0e0e0",
+            anchor="center",
+        ).grid(row=1, column=4, sticky="nsew")  # Header for mid3
+
+        ttk.Label(
+            table_container_2,
             text="기준배출량\n[m³/h·대]",
             font=("Arial", 8, "bold"),
             borderwidth=1,
@@ -4392,7 +4561,7 @@ if __name__ == "__main__":
             background="#e0e0e0",
             anchor="center",
             justify="center",
-        ).grid(row=1, column=4, rowspan=2, sticky="nsew")
+        ).grid(row=1, column=5, rowspan=2, sticky="nsew")
 
        
 
@@ -4421,8 +4590,26 @@ if __name__ == "__main__":
         # Mid3: first four '이하', then ['', '0.01', '[ g/kw*h ]', '이하', '41.3']
         mid3 = ["이하", "이하", "이하", "이하", "", "0.01", "[ g/kw*h ]", "이하", "41.3"]
 
-        # Emission final column values (strings)
-        emissions = ["0.0000", "0.0712", "0.0712", "0.0712", "3.2693", "7.7917", "8.6191", "11.1532", "km/h"]
+        # Emission final column values (first 8 calculated, last as before)
+        emissions = []
+        try:
+            m1_8 = float(mid1[8])
+            m3_8 = float(mid3[8])
+            # First four values
+            for i in range(4):
+                m2 = float(mid2[i])
+                val = round(6.25 * m2 * (m1_8 / 100) * m3_8, 4)
+                emissions.append(f"{val:.4f}")
+            # 5th to 8th values
+            m3_5 = float(mid3[5])
+            for i in range(4, 8):
+                m1_i = float(mid1[i])
+                val = round(6.25 * m3_5 * m1_i * (m1_8 / 100) * 0.7355, 4)
+                emissions.append(f"{val:.4f}")
+        except Exception:
+            emissions = ["ERR"] * 8
+        # The last value remains as before
+        emissions += ["km/h"]
 
 
         for idx in range(len(total_rows)):
@@ -4505,7 +4692,19 @@ if __name__ == "__main__":
                 font=("Arial", 8),
             ).grid(row=r_idx, column=3, sticky="nsew")
 
-            # Emission (column 4)
+            # Mid3 (column 4)
+            ttk.Label(
+                table_container_2,
+                text=mid3[idx],
+                borderwidth=1,
+                relief="solid",
+                padding=5,
+                background=row_bg,
+                anchor="center",
+                font=("Arial", 8),
+            ).grid(row=r_idx, column=4, sticky="nsew")
+
+            # Emission (column 5)
             ttk.Label(
                 table_container_2,
                 text=emissions[idx],
@@ -4515,7 +4714,7 @@ if __name__ == "__main__":
                 background=row_bg,
                 anchor="center",
                 font=("Arial", 8),
-            ).grid(row=r_idx, column=4, sticky="nsew")
+            ).grid(row=r_idx, column=5, sticky="nsew")
         
         # Title
         title_label = ttk.Label(main_frame, text="Speed-Grade Correction Factor Tables (fiv)", 
