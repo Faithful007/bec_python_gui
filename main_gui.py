@@ -4393,9 +4393,62 @@ if __name__ == "__main__":
         table_container_2.pack(fill="x", pady=10)
         for col in range(6):
             table_container_2.columnconfigure(col, weight=1, minsize=80)  # Reduced width
+
+        # Precompute 기준배출량 values from the Standard Application table
+        fuel_rows = ["휘발유", "경유"]
+        other_classifications = [
+            "소형버스",
+            "소형트럭",
+            "중형트럭",
+            "대형버스",
+            "대형트럭",
+            "특수트럭",
+            "합계/공차",
+        ]
+        total_rows = fuel_rows + other_classifications
+
+        mid1 = ["", "", "", "", "111", "226", "250", "323.5", "75"]
+        mid2 = ["0", "0.0045", "0.0045", "0.0045", "PS", "PS", "PS", "PS", "V (%) ="]
+        mid3 = ["이하", "이하", "이하", "이하", "", "0.01", "[ g/kw*h ]", "이하", "41.3"]
+
+        from decimal import Decimal, ROUND_HALF_UP
+
+        def _safe_decimal(value):
+            try:
+                return Decimal(str(value))
+            except Exception:
+                return None
+
+        v_percent = _safe_decimal(mid1[-1])
+        speed_factor = _safe_decimal(mid3[-1])
+        g_per_kwh = _safe_decimal(mid3[5])
+        k_hp = Decimal("0.7355")
+        k_base = Decimal("6.25")
+
+        emissions = []
+        for i in range(len(total_rows)):
+            if i == len(total_rows) - 1:
+                emissions.append("km/h")
+                continue
+
+            m2_val = _safe_decimal(mid2[i])
+            if m2_val is not None and v_percent is not None and speed_factor is not None:
+                val = k_base * m2_val * (v_percent / Decimal("100")) * speed_factor
+                emissions.append(str(val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)))
+                continue
+
+            m1_val = _safe_decimal(mid1[i])
+            if m1_val is not None and g_per_kwh is not None and v_percent is not None:
+                val = k_base * g_per_kwh * m1_val * (v_percent / Decimal("100")) * k_hp
+                emissions.append(str(val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)))
+            else:
+                emissions.append("ERR")
         # --- Table 3: 매연의 총배출량 Qs[m2/h] ---
+        qs_table = ttk.Frame(diesel_scrollable_frame)
+        qs_table.pack(fill="x", pady=(20, 20), anchor="center")
+
         qs_title = ttk.Label(
-            diesel_scrollable_frame,
+            qs_table,
             text="매연의 총배출량 Qs[m2/h]",
             font=("Arial", 11, "bold"),
             background="#e0e0e0",
@@ -4405,10 +4458,7 @@ if __name__ == "__main__":
             justify="center",
             padding=5,
         )
-        qs_title.pack(fill="x", pady=(20, 0), anchor="center")
-
-        qs_table = ttk.Frame(diesel_scrollable_frame)
-        qs_table.pack(fill="x", pady=(0, 20), anchor="center")
+        qs_title.grid(row=0, column=0, columnspan=11, sticky="nsew")
 
 
         # --- Updated header to match specified structure and expand header/subheader rows ---
@@ -4417,28 +4467,30 @@ if __name__ == "__main__":
         header_pad = 6
         subheader_pad = 4
         # Row 0: Main categories (merged cells)
-        ttk.Label(qs_table, text="진주", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=0, rowspan=1, sticky="nsew")
-        ttk.Label(qs_table, text="구분", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=1, rowspan=1, sticky="nsew")
-        ttk.Label(qs_table, text="승용차", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=2, columnspan=2, sticky="nsew")
-        ttk.Label(qs_table, text="버스", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=4, columnspan=2, sticky="nsew")
-        ttk.Label(qs_table, text="트럭", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=6, columnspan=4, sticky="nsew")
-        ttk.Label(qs_table, text="합계", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=0, column=10, rowspan=1, sticky="nsew")
+        ttk.Label(qs_table, text="진주", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=1, column=0, sticky="nsew")
+        ttk.Label(qs_table, text="구분", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=1, column=1, rowspan=3, sticky="nsew")
+        ttk.Label(qs_table, text="승용차", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=1, column=2, columnspan=2, sticky="nsew")
+        ttk.Label(qs_table, text="버스", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=1, column=4, columnspan=2, sticky="nsew")
+        ttk.Label(qs_table, text="트럭", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=1, column=6, columnspan=4, sticky="nsew")
+        ttk.Label(qs_table, text="합계", font=header_font, borderwidth=1, relief="solid", padding=header_pad, background="#e0e0e0", anchor="center").grid(row=1, column=10, rowspan=3, sticky="nsew")
 
         # Row 1: Subheaders (aligned under merged columns)
         # Subheader row: column 0 is '속도 (km/h)', column 1 is blank (for '구분' header above)
-        ttk.Label(qs_table, text="속도 (km/h)", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=0, sticky="nsew")
-        ttk.Label(qs_table, text="", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5").grid(row=1, column=1, sticky="nsew")
-        ttk.Label(qs_table, text="휘발유", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=2, sticky="nsew")
-        ttk.Label(qs_table, text="경유", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=3, sticky="nsew")
-        ttk.Label(qs_table, text="소형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=4, sticky="nsew")
-        ttk.Label(qs_table, text="대형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=5, sticky="nsew")
-        ttk.Label(qs_table, text="소형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=6, sticky="nsew")
-        ttk.Label(qs_table, text="중형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=7, sticky="nsew")
-        ttk.Label(qs_table, text="대형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=8, sticky="nsew")
-        ttk.Label(qs_table, text="특수", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=1, column=9, sticky="nsew")
+        ttk.Label(qs_table, text="속도 (km/h)", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=2, column=0, rowspan=2, sticky="nsew")
+        ttk.Label(qs_table, text="휘발유", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=2, column=2, sticky="nsew")
+        ttk.Label(qs_table, text="경유", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=2, column=3, sticky="nsew")
+        ttk.Label(qs_table, text="소형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=2, column=4, sticky="nsew")
+        ttk.Label(qs_table, text="대형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=2, column=5, sticky="nsew")
+        ttk.Label(qs_table, text="소형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=2, column=6, sticky="nsew")
+        ttk.Label(qs_table, text="중형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=2, column=7, sticky="nsew")
+        ttk.Label(qs_table, text="대형", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=2, column=8, sticky="nsew")
+        ttk.Label(qs_table, text="특수", font=subheader_font, borderwidth=1, relief="solid", padding=subheader_pad, background="#f5f5f5", anchor="center").grid(row=2, column=9, sticky="nsew")
 
-        # Explicitly set row minsize for header and subheader rows (expand to 3x normal row height)
-        qs_table.rowconfigure(0, minsize=100)
+        # Explicitly set row minsize for header and subheader rows
+        qs_table.rowconfigure(0, minsize=32)
+        qs_table.rowconfigure(1, minsize=40)
+        qs_table.rowconfigure(2, minsize=30)
+        qs_table.rowconfigure(3, minsize=26)
         
 
         # Column config - set minsize for each column only once
@@ -4446,12 +4498,29 @@ if __name__ == "__main__":
         for col in range(11):
             qs_table.columnconfigure(col, weight=1, minsize=wider_col_widths[col])
 
+        # Row 2: Subheader values from 기준배출량 column
+        qs_subheader_values = emissions[:8]
+        qs_subheader_labels = []
+        for idx, val in enumerate(qs_subheader_values, start=2):
+            lbl = ttk.Label(
+                qs_table,
+                text=val,
+                font=subheader_font,
+                borderwidth=1,
+                relief="solid",
+                padding=subheader_pad,
+                background="#f5f5f5",
+                anchor="center",
+            )
+            lbl.grid(row=3, column=idx, sticky="nsew")
+            qs_subheader_labels.append(lbl)
+
         speeds = [10, 20, 30, 40, 50, 60, 70, 80]
         section_names = ["1구간", "2구간", "3구간"]
         # Example data for each speed and section (fill with zeros except for 1구간)
         # All vehicle cells after the section column are set to '0.0' by default
         qs_values = {speed: ["0.0"] * 9 for speed in speeds}
-        row_idx = 1
+        row_idx = 4
         # Store references to Entry widgets and sum labels for updating
         qs_entries = []
         for speed in speeds:
@@ -4567,50 +4636,25 @@ if __name__ == "__main__":
 
         # Rebuild data rows into 5 columns: Classification group split into two subcolumns
         # Top two rows are fuel types under a merged '승용차' label
-        fuel_rows = ["휘발유", "경유"]
-        other_classifications = [
-            "소형버스",
-            "소형트럭",
-            "중형트럭",
-            "대형버스",
-            "대형트럭",
-            "특수트럭",
-            "합계/공차",
-        ]
 
-        # Combine into display order: two fuel rows then the other classifications
-        total_rows = fuel_rows + other_classifications
 
-        # Mid1 (first middle column) — now empty for the first two rows
-        mid1 = ["", "", "", "", "111", "226", "250", "323.5", "75"]
+        def _is_numeric_text(value):
+            try:
+                text = str(value).strip()
+                if text == "":
+                    return False
+                float(text)
+                return True
+            except Exception:
+                return False
 
-        # Mid2: first four numeric allowances, next four 'PS', last 'V (%) ='
-        mid2 = ["0", "0.0045", "0.0045", "0.0045", "PS", "PS", "PS", "PS", "V (%) ="]
+        mid_entry_vars = {"mid1": [], "mid2": [], "mid3": []}
+        mid_entry_vars_by_idx = {"mid1": {}, "mid2": {}, "mid3": {}}
+        table_container_2._mid_entry_vars = mid_entry_vars
+        table_container_2._mid_entry_vars_by_idx = mid_entry_vars_by_idx
+        table_container_2._qs_subheader_labels = qs_subheader_labels
 
-        # Mid3: first four '이하', then ['', '0.01', '[ g/kw*h ]', '이하', '41.3']
-        mid3 = ["이하", "이하", "이하", "이하", "", "0.01", "[ g/kw*h ]", "이하", "41.3"]
-
-        # Emission final column values (first 8 calculated, last as before)
-        emissions = []
-        try:
-            m1_8 = float(mid1[8])
-            m3_8 = float(mid3[8])
-            # First four values
-            for i in range(4):
-                m2 = float(mid2[i])
-                val = round(6.25 * m2 * (m1_8 / 100) * m3_8, 4)
-                emissions.append(f"{val:.4f}")
-            # 5th to 8th values
-            m3_5 = float(mid3[5])
-            for i in range(4, 8):
-                m1_i = float(mid1[i])
-                val = round(6.25 * m3_5 * m1_i * (m1_8 / 100) * 0.7355, 4)
-                emissions.append(f"{val:.4f}")
-        except Exception:
-            emissions = ["ERR"] * 8
-        # The last value remains as before
-        emissions += ["km/h"]
-
+        vcmd_mid = (dialog.register(NumericValidator.validate_numeric), "%S", "%d")
 
         for idx in range(len(total_rows)):
             r_idx = 3 + idx
@@ -4668,44 +4712,88 @@ if __name__ == "__main__":
                     font=("Arial", 8),
                 ).grid(row=r_idx, column=0, columnspan=2, sticky="nsew")
 
-            # Mid1 (column 2)
-            ttk.Label(
-                table_container_2,
-                text=mid1[idx],
-                borderwidth=1,
-                relief="solid",
-                padding=5,
-                background=row_bg,
-                anchor="center",
-                font=("Arial", 8),
-            ).grid(row=r_idx, column=2, sticky="nsew")
+            # Mid1 (column 2) - numeric values editable
+            if _is_numeric_text(mid1[idx]):
+                mid1_var = tk.StringVar(value=str(mid1[idx]))
+                mid_entry_vars["mid1"].append(mid1_var)
+                mid_entry_vars_by_idx["mid1"][idx] = mid1_var
+                ttk.Entry(
+                    table_container_2,
+                    textvariable=mid1_var,
+                    validate="key",
+                    validatecommand=vcmd_mid,
+                    width=10,
+                    justify="center",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=2, sticky="nsew")
+            else:
+                ttk.Label(
+                    table_container_2,
+                    text=mid1[idx],
+                    borderwidth=1,
+                    relief="solid",
+                    padding=5,
+                    background=row_bg,
+                    anchor="center",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=2, sticky="nsew")
 
-            # Mid2 (column 3)
-            ttk.Label(
-                table_container_2,
-                text=mid2[idx],
-                borderwidth=1,
-                relief="solid",
-                padding=5,
-                background=row_bg,
-                anchor="center",
-                font=("Arial", 8),
-            ).grid(row=r_idx, column=3, sticky="nsew")
+            # Mid2 (column 3) - numeric values editable
+            if _is_numeric_text(mid2[idx]):
+                mid2_var = tk.StringVar(value=str(mid2[idx]))
+                mid_entry_vars["mid2"].append(mid2_var)
+                mid_entry_vars_by_idx["mid2"][idx] = mid2_var
+                ttk.Entry(
+                    table_container_2,
+                    textvariable=mid2_var,
+                    validate="key",
+                    validatecommand=vcmd_mid,
+                    width=10,
+                    justify="center",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=3, sticky="nsew")
+            else:
+                ttk.Label(
+                    table_container_2,
+                    text=mid2[idx],
+                    borderwidth=1,
+                    relief="solid",
+                    padding=5,
+                    background=row_bg,
+                    anchor="center",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=3, sticky="nsew")
 
-            # Mid3 (column 4)
-            ttk.Label(
-                table_container_2,
-                text=mid3[idx],
-                borderwidth=1,
-                relief="solid",
-                padding=5,
-                background=row_bg,
-                anchor="center",
-                font=("Arial", 8),
-            ).grid(row=r_idx, column=4, sticky="nsew")
+            # Mid3 (column 4) - numeric values editable
+            if _is_numeric_text(mid3[idx]):
+                mid3_var = tk.StringVar(value=str(mid3[idx]))
+                mid_entry_vars["mid3"].append(mid3_var)
+                mid_entry_vars_by_idx["mid3"][idx] = mid3_var
+                ttk.Entry(
+                    table_container_2,
+                    textvariable=mid3_var,
+                    validate="key",
+                    validatecommand=vcmd_mid,
+                    width=10,
+                    justify="center",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=4, sticky="nsew")
+            else:
+                ttk.Label(
+                    table_container_2,
+                    text=mid3[idx],
+                    borderwidth=1,
+                    relief="solid",
+                    padding=5,
+                    background=row_bg,
+                    anchor="center",
+                    font=("Arial", 8),
+                ).grid(row=r_idx, column=4, sticky="nsew")
 
             # Emission (column 5)
-            ttk.Label(
+            if "emission_labels" not in locals():
+                emission_labels = []
+            emission_label = ttk.Label(
                 table_container_2,
                 text=emissions[idx],
                 borderwidth=1,
@@ -4714,7 +4802,51 @@ if __name__ == "__main__":
                 background=row_bg,
                 anchor="center",
                 font=("Arial", 8),
-            ).grid(row=r_idx, column=5, sticky="nsew")
+            )
+            emission_label.grid(row=r_idx, column=5, sticky="nsew")
+            emission_labels.append(emission_label)
+
+        table_container_2._emission_labels = emission_labels
+
+        def _get_mid_value(values, var_map, idx):
+            if idx in var_map:
+                return var_map[idx].get()
+            return values[idx]
+
+        def _recalc_emissions(*_args):
+            v_percent_local = _safe_decimal(_get_mid_value(mid1, mid_entry_vars_by_idx["mid1"], len(mid1) - 1))
+            speed_factor_local = _safe_decimal(_get_mid_value(mid3, mid_entry_vars_by_idx["mid3"], len(mid3) - 1))
+            g_per_kwh_local = _safe_decimal(_get_mid_value(mid3, mid_entry_vars_by_idx["mid3"], 5))
+
+            new_emissions = []
+            for i in range(len(total_rows)):
+                if i == len(total_rows) - 1:
+                    new_emissions.append("km/h")
+                    continue
+
+                m2_val = _safe_decimal(_get_mid_value(mid2, mid_entry_vars_by_idx["mid2"], i))
+                if m2_val is not None and v_percent_local is not None and speed_factor_local is not None:
+                    val = k_base * m2_val * (v_percent_local / Decimal("100")) * speed_factor_local
+                    new_emissions.append(str(val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)))
+                    continue
+
+                m1_val = _safe_decimal(_get_mid_value(mid1, mid_entry_vars_by_idx["mid1"], i))
+                if m1_val is not None and g_per_kwh_local is not None and v_percent_local is not None:
+                    val = k_base * g_per_kwh_local * m1_val * (v_percent_local / Decimal("100")) * k_hp
+                    new_emissions.append(str(val.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)))
+                else:
+                    new_emissions.append("")
+
+            for i, label in enumerate(table_container_2._emission_labels):
+                label.config(text=new_emissions[i])
+
+            for i, label in enumerate(table_container_2._qs_subheader_labels):
+                if i < len(new_emissions):
+                    label.config(text=new_emissions[i])
+
+        for vars_by_idx in mid_entry_vars_by_idx.values():
+            for var in vars_by_idx.values():
+                var.trace_add("write", _recalc_emissions)
         
         # Title
         title_label = ttk.Label(main_frame, text="Speed-Grade Correction Factor Tables (fiv)", 
